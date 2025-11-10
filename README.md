@@ -621,7 +621,6 @@ audx-realtime/
 │   └── deploy-to-android.sh
 ├── samples/               # Sample PCM files
 ├── CMakeLists.txt         # Main build config
-└── CLAUDE.md              # Claude Code guidance
 ```
 
 ## Contributing
