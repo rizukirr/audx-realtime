@@ -1,0 +1,94 @@
+# Build directories
+build/
+bin/
+lib/
+out/
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+install_manifest.txt
+CTestTestfile.cmake
+compile_commands.json
+*.cmake
+
+# Object files
+*.o
+*.ko
+*.obj
+*.elf
+
+# Precompiled Headers
+*.gch
+*.pch
+
+# Libraries
+*.lib
+*.a
+*.la
+*.lo
+*.so
+*.so.*
+*.dylib
+
+# Shared objects (inc. Windows DLLs)
+*.dll
+*.exe
+*.out
+*.app
+*.i*86
+*.x86_64
+*.hex
+
+# Debug files
+*.dSYM/
+*.su
+*.idb
+*.pdb
+vgcore.*
+core
+*.core
+
+# Android
+*.apk
+*.aab
+*.ap_
+*.dex
+.gradle/
+local.properties
+.idea/
+*.iml
+.externalNativeBuild/
+.cxx/
+*.jks
+*.keystore
+
+# IDE
+.vscode/
+.vs/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Cache
+.cache/
+
+# Documentation build
+docs/_build/
+docs/.doctrees/
+
+# Test results
+Testing/
+*.log
+
+# Temporary files
+*.tmp
+*.bak
+*.orig
+
+# System files
+Thumbs.db
+.directory
+CLAUDE.md

@@ -1,0 +1,420 @@
+#include "denoiser.h"
+#include "unity.h"
+#include <stdlib.h>
+#include <string.h>
+
+void setUp(void) {}
+void tearDown(void) {}
+
+void test_denoiser_create(void) {
+  struct DenoiserConfig config = {.num_channels = 2,
+                                  .model_preset = MODEL_EMBEDDED,
+                                  .model_path = NULL,
+                                  .vad_threshold = 0.5,
+                                  .enable_vad_output = false};
+
+  struct Denoiser ds;
+  memset(&ds, 0, sizeof(ds));
+  int ret = denoiser_create(&config, &ds);
+  TEST_ASSERT_EQUAL_INT(0, ret);
+  denoiser_destroy(&ds);
+}
+
+void test_denoiser_create_no_config(void) {
+  struct DenoiserConfig config = {};
+  struct Denoiser ds;
+  memset(&ds, 0, sizeof(ds));
+  int ret = denoiser_create(&config, &ds);
+  TEST_ASSERT_EQUAL_INT(0, ret);
+  TEST_ASSERT_EQUAL_INT(1, ds.num_channels);
+  TEST_ASSERT_EQUAL_FLOAT(0.5, ds.vad_threshold);
+  TEST_ASSERT_EQUAL_INT(1, ds.min_vad_score);
+  TEST_ASSERT_EQUAL_INT(0, ds.max_vad_score);
+  denoiser_destroy(&ds);
+}
+
+void test_denoiser_create_null_config(void) {
+  struct Denoiser ds;
+  memset(&ds, 0, sizeof(ds));
+  int ret = denoiser_create(NULL, &ds);
+  TEST_ASSERT_EQUAL_INT(-1, ret);
+  denoiser_destroy(&ds);
+}
+
+void test_denoiser_process(void) {
+  struct DenoiserConfig config = {};
+  struct Denoiser ds;
+  memset(&ds, 0, sizeof(ds));
+  int ret = denoiser_create(&config, &ds);
+  TEST_ASSERT_EQUAL_INT(0, ret);
+
+  for (int frame = 0; frame < 10; frame++) {
+    // Generate fake input (silence with noise)
+    int16_t input[480];
+    for (int i = 0; i < 480; i++) {
+      input[i] = (rand() % 1000) - 500; // Random noise
+    }
+
+    // Process
+    int16_t output[480];
+    struct DenoiserResult result;
+    int ret = denoiser_process(&ds, input, output, &result);
+    TEST_ASSERT_EQUAL_INT(0, ret);
+  }
+  denoiser_destroy(&ds);
+}
+
+void test_denoiser_process_null_param(void) {
+  int ret = denoiser_process(NULL, NULL, NULL, NULL);
+  TEST_ASSERT_EQUAL_INT(-1, ret);
+}
+
+// Test stereo channel processing
+void test_denoiser_create_stereo(void) {
+  struct DenoiserConfig config = {.num_channels = 2,
+                                  .model_preset = MODEL_EMBEDDED,
+                                  .model_path = NULL,
+                                  .vad_threshold = 0.5,
+                                  .enable_vad_output = false};
+
+  struct Denoiser ds;
+  memset(&ds, 0, sizeof(ds));
+  int ret = denoiser_create(&config, &ds);
+  TEST_ASSERT_EQUAL_INT(0, ret);
+  TEST_ASSERT_EQUAL_INT(2, ds.num_channels);
+  denoiser_destroy(&ds);
+}
+
+void test_denoiser_process_stereo(void) {
+  struct DenoiserConfig config = {.num_channels = 2,
+                                  .model_preset = MODEL_EMBEDDED,
+                                  .model_path = NULL,
+                                  .vad_threshold = 0.5,
+                                  .enable_vad_output = true};
+
+  struct Denoiser ds;
+  memset(&ds, 0, sizeof(ds));
+  int ret = denoiser_create(&config, &ds);
+  TEST_ASSERT_EQUAL_INT(0, ret);
+
+  // Generate fake stereo input (interleaved L, R, L, R, ...)
+  int16_t input[480 * 2]; // 480 frames * 2 channels
+  for (int i = 0; i < 480 * 2; i++) {
+    input[i] = (rand() % 1000) - 500; // Random noise
+  }
+
+  // Process
+  int16_t output[480 * 2];
+  struct DenoiserResult result;
+  ret = denoiser_process(&ds, input, output, &result);
+  TEST_ASSERT_EQUAL_INT(0, ret);
+  TEST_ASSERT_EQUAL_INT(480, result.samples_processed);
+
+  denoiser_destroy(&ds);
+}
+
+// Test VAD functionality
+void test_denoiser_vad_enabled(void) {
+  struct DenoiserConfig config = {.num_channels = 1,
+                                  .model_preset = MODEL_EMBEDDED,
+                                  .model_path = NULL,
+                                  .vad_threshold = 0.5,
+                                  .enable_vad_output = true};
+
+  struct Denoiser ds;
+  memset(&ds, 0, sizeof(ds));
+  int ret = denoiser_create(&config, &ds);
+  TEST_ASSERT_EQUAL_INT(0, ret);
+
+  int16_t input[480];
+  int16_t output[480];
+  struct DenoiserResult result;
+
+  // Process a frame
+  for (int i = 0; i < 480; i++) {
+    input[i] = (rand() % 1000) - 500;
+  }
+
+  ret = denoiser_process(&ds, input, output, &result);
+  TEST_ASSERT_EQUAL_INT(0, ret);
+
+  // Check that VAD probability is in valid range
+  TEST_ASSERT_TRUE(result.vad_probability >= 0.0f);
+  TEST_ASSERT_TRUE(result.vad_probability <= 1.0f);
+  TEST_ASSERT_EQUAL_INT(480, result.samples_processed);
+
+  denoiser_destroy(&ds);
+}
+
+void test_denoiser_vad_threshold(void) {
+  struct DenoiserConfig config = {.num_channels = 1,
+                                  .model_preset = MODEL_EMBEDDED,
+                                  .model_path = NULL,
+                                  .vad_threshold = 0.9, // High threshold
+                                  .enable_vad_output = true};
+
+  struct Denoiser ds;
+  memset(&ds, 0, sizeof(ds));
+  int ret = denoiser_create(&config, &ds);
+  TEST_ASSERT_EQUAL_INT(0, ret);
+  TEST_ASSERT_EQUAL_FLOAT(0.9, ds.vad_threshold);
+
+  denoiser_destroy(&ds);
+}
+
+// Test statistics tracking
+void test_denoiser_stats(void) {
+  struct DenoiserConfig config = {.num_channels = 1,
+                                  .model_preset = MODEL_EMBEDDED,
+                                  .model_path = NULL,
+                                  .vad_threshold = 0.5,
+                                  .enable_vad_output = true};
+
+  struct Denoiser ds;
+  memset(&ds, 0, sizeof(ds));
+  int ret = denoiser_create(&config, &ds);
+  TEST_ASSERT_EQUAL_INT(0, ret);
+
+  // Process multiple frames
+  for (int frame = 0; frame < 5; frame++) {
+    int16_t input[480];
+    int16_t output[480];
+    struct DenoiserResult result;
+
+    for (int i = 0; i < 480; i++) {
+      input[i] = (rand() % 1000) - 500;
+    }
+
+    ret = denoiser_process(&ds, input, output, &result);
+    TEST_ASSERT_EQUAL_INT(0, ret);
+  }
+
+  // Get statistics
+  const char *stats = get_denoiser_stats(&ds);
+  TEST_ASSERT_NOT_NULL(stats);
+  TEST_ASSERT_TRUE(strlen(stats) > 0);
+
+  // Check that stats contain expected information
+  TEST_ASSERT_TRUE(strstr(stats, "Frames processed") != NULL);
+  TEST_ASSERT_TRUE(strstr(stats, "Speech detected") != NULL);
+  TEST_ASSERT_TRUE(strstr(stats, "VAD scores") != NULL);
+
+  denoiser_destroy(&ds);
+}
+
+void test_denoiser_stats_null(void) {
+  const char *stats = get_denoiser_stats(NULL);
+  TEST_ASSERT_NULL(stats);
+}
+
+void test_denoiser_frame_counting(void) {
+  struct DenoiserConfig config = {.num_channels = 1,
+                                  .model_preset = MODEL_EMBEDDED,
+                                  .model_path = NULL,
+                                  .vad_threshold = 0.5,
+                                  .enable_vad_output = false};
+
+  struct Denoiser ds;
+  memset(&ds, 0, sizeof(ds));
+  int ret = denoiser_create(&config, &ds);
+  TEST_ASSERT_EQUAL_INT(0, ret);
+
+  // Process 10 frames
+  for (int frame = 0; frame < 10; frame++) {
+    int16_t input[480];
+    int16_t output[480];
+
+    for (int i = 0; i < 480; i++) {
+      input[i] = (rand() % 1000) - 500;
+    }
+
+    ret = denoiser_process(&ds, input, output, NULL);
+    TEST_ASSERT_EQUAL_INT(0, ret);
+  }
+
+  // Check frame count through stats
+  TEST_ASSERT_EQUAL_UINT64(10, ds.frames_processed);
+
+  denoiser_destroy(&ds);
+}
+
+// Test error handling
+void test_denoiser_create_invalid_channels(void) {
+  struct DenoiserConfig config = {.num_channels = 3, // Invalid: >2
+                                  .model_preset = MODEL_EMBEDDED,
+                                  .model_path = NULL,
+                                  .vad_threshold = 0.5,
+                                  .enable_vad_output = false};
+
+  struct Denoiser ds;
+  memset(&ds, 0, sizeof(ds));
+  int ret = denoiser_create(&config, &ds);
+  TEST_ASSERT_EQUAL_INT(REALTIME_DENOISER_ERROR_INVALID, ret);
+}
+
+void test_denoiser_error_null(void) {
+  const char *error = get_denoiser_error(NULL);
+  TEST_ASSERT_NULL(error);
+}
+
+void test_denoiser_process_null_input(void) {
+  struct DenoiserConfig config = {.num_channels = 1,
+                                  .model_preset = MODEL_EMBEDDED,
+                                  .model_path = NULL,
+                                  .vad_threshold = 0.5,
+                                  .enable_vad_output = false};
+
+  struct Denoiser ds;
+  memset(&ds, 0, sizeof(ds));
+  int ret = denoiser_create(&config, &ds);
+  TEST_ASSERT_EQUAL_INT(0, ret);
+
+  int16_t output[480];
+  ret = denoiser_process(&ds, NULL, output, NULL);
+  TEST_ASSERT_EQUAL_INT(REALTIME_DENOISER_ERROR_INVALID, ret);
+
+  denoiser_destroy(&ds);
+}
+
+void test_denoiser_process_null_output(void) {
+  struct DenoiserConfig config = {.num_channels = 1,
+                                  .model_preset = MODEL_EMBEDDED,
+                                  .model_path = NULL,
+                                  .vad_threshold = 0.5,
+                                  .enable_vad_output = false};
+
+  struct Denoiser ds;
+  memset(&ds, 0, sizeof(ds));
+  int ret = denoiser_create(&config, &ds);
+  TEST_ASSERT_EQUAL_INT(0, ret);
+
+  int16_t input[480];
+  ret = denoiser_process(&ds, input, NULL, NULL);
+  TEST_ASSERT_EQUAL_INT(REALTIME_DENOISER_ERROR_INVALID, ret);
+
+  denoiser_destroy(&ds);
+}
+
+// Test utility functions
+void test_denoiser_version(void) {
+  const char *version = denoiser_version();
+  TEST_ASSERT_NOT_NULL(version);
+  TEST_ASSERT_TRUE(strlen(version) > 0);
+  TEST_ASSERT_EQUAL_STRING("1.0.0", version);
+}
+
+void test_denoiser_destroy_null(void) {
+  // Should not crash
+  denoiser_destroy(NULL);
+  TEST_ASSERT_TRUE(true); // If we get here, test passed
+}
+
+// Test VAD score tracking over multiple frames
+void test_denoiser_vad_score_tracking(void) {
+  struct DenoiserConfig config = {.num_channels = 1,
+                                  .model_preset = MODEL_EMBEDDED,
+                                  .model_path = NULL,
+                                  .vad_threshold = 0.5,
+                                  .enable_vad_output = true};
+
+  struct Denoiser ds;
+  memset(&ds, 0, sizeof(ds));
+  int ret = denoiser_create(&config, &ds);
+  TEST_ASSERT_EQUAL_INT(0, ret);
+
+  // Initial min/max should be set to 1.0 and 0.0
+  TEST_ASSERT_EQUAL_FLOAT(1.0f, ds.min_vad_score);
+  TEST_ASSERT_EQUAL_FLOAT(0.0f, ds.max_vad_score);
+
+  // Process frames
+  for (int frame = 0; frame < 5; frame++) {
+    int16_t input[480];
+    int16_t output[480];
+    struct DenoiserResult result;
+
+    for (int i = 0; i < 480; i++) {
+      input[i] = (rand() % 1000) - 500;
+    }
+
+    ret = denoiser_process(&ds, input, output, &result);
+    TEST_ASSERT_EQUAL_INT(0, ret);
+  }
+
+  // After processing, min should be <= max
+  TEST_ASSERT_TRUE(ds.min_vad_score <= ds.max_vad_score);
+  TEST_ASSERT_TRUE(ds.min_vad_score >= 0.0f);
+  TEST_ASSERT_TRUE(ds.max_vad_score <= 1.0f);
+
+  denoiser_destroy(&ds);
+}
+
+// Test result with VAD disabled
+void test_denoiser_vad_disabled(void) {
+  struct DenoiserConfig config = {.num_channels = 1,
+                                  .model_preset = MODEL_EMBEDDED,
+                                  .model_path = NULL,
+                                  .vad_threshold = 0.5,
+                                  .enable_vad_output = false};
+
+  struct Denoiser ds;
+  memset(&ds, 0, sizeof(ds));
+  int ret = denoiser_create(&config, &ds);
+  TEST_ASSERT_EQUAL_INT(0, ret);
+
+  int16_t input[480];
+  int16_t output[480];
+  struct DenoiserResult result;
+  memset(&result, 0, sizeof(result));
+
+  for (int i = 0; i < 480; i++) {
+    input[i] = (rand() % 1000) - 500;
+  }
+
+  ret = denoiser_process(&ds, input, output, &result);
+  TEST_ASSERT_EQUAL_INT(0, ret);
+
+  // With VAD disabled, result should not be populated
+  // (but we still track internally for stats)
+  TEST_ASSERT_EQUAL_INT(0, result.samples_processed);
+
+  denoiser_destroy(&ds);
+}
+
+// Main function to run tests
+int main(void) {
+  UNITY_BEGIN();
+
+  // Basic creation tests
+  RUN_TEST(test_denoiser_create);
+  RUN_TEST(test_denoiser_create_no_config);
+  RUN_TEST(test_denoiser_create_null_config);
+  RUN_TEST(test_denoiser_create_stereo);
+  RUN_TEST(test_denoiser_create_invalid_channels);
+
+  // Processing tests
+  RUN_TEST(test_denoiser_process);
+  RUN_TEST(test_denoiser_process_null_param);
+  RUN_TEST(test_denoiser_process_null_input);
+  RUN_TEST(test_denoiser_process_null_output);
+  RUN_TEST(test_denoiser_process_stereo);
+
+  // VAD tests
+  RUN_TEST(test_denoiser_vad_enabled);
+  RUN_TEST(test_denoiser_vad_disabled);
+  RUN_TEST(test_denoiser_vad_threshold);
+  RUN_TEST(test_denoiser_vad_score_tracking);
+
+  // Statistics tests
+  RUN_TEST(test_denoiser_stats);
+  RUN_TEST(test_denoiser_stats_null);
+  RUN_TEST(test_denoiser_frame_counting);
+
+  // Error handling tests
+  RUN_TEST(test_denoiser_error_null);
+
+  // Utility tests
+  RUN_TEST(test_denoiser_version);
+  RUN_TEST(test_denoiser_destroy_null);
+
+  return UNITY_END();
+}
