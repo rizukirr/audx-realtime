@@ -1,5 +1,6 @@
 #include "denoiser.h"
 #include "model_loader.h"
+#include <fcntl.h>
 #include <getopt.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -177,6 +178,11 @@ int main(int argc, char *argv[]) {
 
   /* Process frames */
   printf("Processing audio...\n");
+
+  /* Start timing for the entire batch */
+  struct timespec start_time, end_time;
+  clock_gettime(CLOCK_MONOTONIC, &start_time);
+
   int frame_count = 0;
   while (1) {
     size_t read =
@@ -208,10 +214,35 @@ int main(int argc, char *argv[]) {
       fflush(stdout);
     }
   }
+
+  /* End timing */
+  clock_gettime(CLOCK_MONOTONIC, &end_time);
+  double total_time_ms = (end_time.tv_sec - start_time.tv_sec) * 1000.0 +
+                         (end_time.tv_nsec - start_time.tv_nsec) / 1000000.0;
+  double avg_time_ms = frame_count > 0 ? total_time_ms / frame_count : 0.0;
+
+  /* Update denoiser timing stats manually */
+  denoiser.total_processing_time = total_time_ms;
+  denoiser.last_frame_time = avg_time_ms;
+
   printf("\n");
 
   /* Print stats */
-  printf("\n%s\n", get_denoiser_stats(&denoiser));
+  static char stats_buffer[512];
+  struct DenoiserStats stats;
+  get_denoiser_stats(&denoiser, &stats);
+
+  snprintf(stats_buffer, sizeof(stats_buffer),
+           "Real-Time Denoiser Statistics:\n"
+           " Frames processed: %d\n"
+           " Speech detected: %.1f%%\n"
+           " VAD scores: avg=%.3f, min=%.3f, max=%.3f\n"
+           " Processing time: total=%.3fms, avg=%.3fms/frame, last=%.3fms",
+           stats.frame_processed, stats.speech_detected, stats.vscores_avg,
+           stats.vscores_min, stats.vscores_max, stats.ptime_total,
+           stats.ptime_avg, stats.ptime_last);
+
+  printf("\n%s\n", stats_buffer);
 
   /* Cleanup */
   free(input_buffer);

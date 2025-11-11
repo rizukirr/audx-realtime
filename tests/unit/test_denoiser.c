@@ -190,21 +190,37 @@ void test_denoiser_stats(void) {
   }
 
   // Get statistics
-  const char *stats = get_denoiser_stats(&ds);
-  TEST_ASSERT_NOT_NULL(stats);
-  TEST_ASSERT_TRUE(strlen(stats) > 0);
+  struct DenoiserStats stats;
+  ret = get_denoiser_stats(&ds, &stats);
+  TEST_ASSERT_TRUE(ret == 0);
 
-  // Check that stats contain expected information
-  TEST_ASSERT_TRUE(strstr(stats, "Frames processed") != NULL);
-  TEST_ASSERT_TRUE(strstr(stats, "Speech detected") != NULL);
-  TEST_ASSERT_TRUE(strstr(stats, "VAD scores") != NULL);
+  float avg_vad = (ds.frames_processed > 0)
+                      ? (ds.total_vad_score / ds.frames_processed)
+                      : 0.0f;
+  float speech_percent = (ds.frames_processed > 0)
+                             ? (100.0f * ds.speech_frames / ds.frames_processed)
+                             : 0.0f;
+
+  double avg_frame_time = (ds.frames_processed > 0)
+                              ? (ds.total_processing_time / ds.frames_processed)
+                              : 0.0;
+
+  TEST_ASSERT_TRUE(stats.frame_processed == ds.frames_processed);
+  TEST_ASSERT_TRUE(stats.ptime_avg == avg_frame_time);
+  TEST_ASSERT_TRUE(stats.speech_detected == speech_percent);
+  TEST_ASSERT_TRUE(stats.vscores_avg == avg_vad);
+  TEST_ASSERT_TRUE(stats.vscores_max == ds.max_vad_score);
+  TEST_ASSERT_TRUE(stats.ptime_last == ds.last_frame_time);
+  TEST_ASSERT_TRUE(stats.ptime_total == ds.total_processing_time);
+  TEST_ASSERT_TRUE(stats.vscores_min == ds.min_vad_score);
 
   denoiser_destroy(&ds);
 }
 
 void test_denoiser_stats_null(void) {
-  const char *stats = get_denoiser_stats(NULL);
-  TEST_ASSERT_NULL(stats);
+  struct DenoiserStats stats;
+  int ret = get_denoiser_stats(NULL, NULL);
+  TEST_ASSERT_EQUAL_INT(-1, ret);
 }
 
 void test_denoiser_frame_counting(void) {

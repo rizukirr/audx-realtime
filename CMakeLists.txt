@@ -123,6 +123,31 @@ endif()
 # Version define
 target_compile_definitions(audx_src PUBLIC AUDX_VERSION="${PROJECT_VERSION}")
 
+# Enable SIMD optimizations for audx_src
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "(x86)|(X86)|(amd64)|(AMD64)" OR
+   ANDROID_ABI STREQUAL "x86" OR ANDROID_ABI STREQUAL "x86_64")
+    if(NOT ANDROID)
+        # Desktop builds: use -march=native
+        target_compile_options(audx_src PRIVATE -march=native)
+    else()
+        # Android x86/x86_64: explicitly enable SSE4.1
+        target_compile_options(audx_src PRIVATE -msse4.1)
+    endif()
+endif()
+
+# Enable ARM NEON for audx_src
+if(ANDROID)
+    if(ANDROID_ABI STREQUAL "armeabi-v7a")
+        # 32-bit ARM requires explicit NEON flag
+        target_compile_options(audx_src PRIVATE -mfpu=neon)
+    endif()
+    # arm64-v8a has NEON by default
+elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^(arm|aarch64)")
+    if(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64")
+        target_compile_options(audx_src PRIVATE -mfpu=neon)
+    endif()
+endif()
+
 if(ANDROID)
     message(STATUS "Building for Android...")
     target_compile_definitions(audx_src PUBLIC AUDX_ANDROID=1)

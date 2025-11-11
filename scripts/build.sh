@@ -26,7 +26,7 @@ android)
   echo "Building for Android..."
   NDK_PATH="${ANDROID_HOME}/ndk/29.0.14206865" # adjust your version here
   ABI="arm64-v8a"
-  API=21
+  API=29  # Android 10 minimum
 
   if [[ ! -d "$NDK_PATH" ]]; then
     echo "NDK path not found at: $NDK_PATH"
