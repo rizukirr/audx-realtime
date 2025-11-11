@@ -26,11 +26,9 @@ if [ ! -d "$NDK_PATH" ]; then
 fi
 
 # ABIs to build
-# Targeting arm64-v8a only for Android 10+
-# - 99.9%+ device coverage for Android 10+ devices
-# - Optimized for real-time audio processing performance
-# - 75% smaller library size vs multi-ABI builds
-ABIS=("arm64-v8a")
+# - arm64-v8a: Physical devices (99.9%+ Android 10+ device coverage)
+# - x86_64: Android emulators
+ABIS=("arm64-v8a" "x86_64")
 
 echo -e "${GREEN}Building audx-realtime for multiple Android ABIs...${NC}"
 
@@ -54,6 +52,10 @@ build_abi() {
   # Copy output
   mkdir -p "libs/${ABI}"
   cp "build/android-${ABI}/lib/libaudx_src.so" "libs/${ABI}/"
+
+  # Strip symbols to reduce size (30-40% reduction, no performance impact)
+  echo -e "${YELLOW}Stripping symbols from ${ABI} library...${NC}"
+  ${NDK_PATH}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip "libs/${ABI}/libaudx_src.so"
 
   echo -e "${GREEN}✓ ${ABI} build complete${NC}"
 }

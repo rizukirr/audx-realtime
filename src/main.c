@@ -1,11 +1,12 @@
-#include "denoiser.h"
-#include "model_loader.h"
+#include "audx/denoiser.h"
+#include "audx/model_loader.h"
 #include <fcntl.h>
 #include <getopt.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 /* Default configuration values */
 #define DEFAULT_CHANNELS 1
@@ -124,15 +125,14 @@ int main(int argc, char *argv[]) {
   long file_size = ftell(input_file);
   fseek(input_file, 0, SEEK_SET);
 
-  int frame_samples = FRAME_SIZE * channels;
+  int frame_samples = AUDX_FRAME_SIZE * channels;
   int num_frames = file_size / (frame_samples * sizeof(int16_t));
 
   printf("File size: %ld bytes\n", file_size);
   printf("Processing: %d frames\n", num_frames);
 
   /* Configure denoiser */
-  struct DenoiserConfig config = {.num_channels = channels,
-                                  .model_preset = model_path ? MODEL_CUSTOM
+  struct DenoiserConfig config = {.model_preset = model_path ? MODEL_CUSTOM
                                                              : MODEL_EMBEDDED,
                                   .model_path = model_path,
                                   .vad_threshold = vad_threshold,
@@ -141,7 +141,7 @@ int main(int argc, char *argv[]) {
   /* Create denoiser */
   struct Denoiser denoiser;
   int ret = denoiser_create(&config, &denoiser);
-  if (ret != REALTIME_DENOISER_SUCCESS) {
+  if (ret != AUDX_SUCCESS) {
     fprintf(stderr, "Error: Failed to create denoiser (code=%d)\n", ret);
     const char *error = get_denoiser_error(&denoiser);
     if (error) {
@@ -198,7 +198,7 @@ int main(int argc, char *argv[]) {
 
     struct DenoiserResult result;
     ret = denoiser_process(&denoiser, input_buffer, output_buffer, &result);
-    if (ret != REALTIME_DENOISER_SUCCESS) {
+    if (ret != AUDX_SUCCESS) {
       fprintf(stderr, "Error processing frame %d\n", frame_count);
       break;
     }
@@ -230,7 +230,7 @@ int main(int argc, char *argv[]) {
   /* Print stats */
   static char stats_buffer[512];
   struct DenoiserStats stats;
-  get_denoiser_stats(&denoiser, &stats);
+  ret = get_denoiser_stats(&denoiser, &stats);
 
   snprintf(stats_buffer, sizeof(stats_buffer),
            "Real-Time Denoiser Statistics:\n"

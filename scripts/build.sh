@@ -11,7 +11,7 @@ release)
   cmake -S . -B build/release \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_C_COMPILER=clang
-  cmake --build build --clean-first
+  cmake --build build/release --clean-first
   ;;
 
 debug)
@@ -19,7 +19,7 @@ debug)
   cmake -S . -B build/debug \
     -DCMAKE_BUILD_TYPE=Debug \
     -DCMAKE_C_COMPILER=clang
-  cmake --build build --clean-first
+  cmake --build build/debug --clean-first
   ;;
 
 android)
@@ -42,6 +42,12 @@ android)
     -DCMAKE_LIBRARY_OUTPUT_DIRECTORY="${PWD}/build/android/libs/$ABI"
 
   cmake --build build/android -j"$(nproc)"
+
+  # Strip symbols to reduce size (30-40% reduction, no performance impact)
+  echo "Stripping symbols..."
+  ${NDK_PATH}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip \
+    "build/android/lib/libaudx_src.so"
+
   echo "Android build done: build/android/libs/$ABI/libaudx_src.so"
   ;;
 

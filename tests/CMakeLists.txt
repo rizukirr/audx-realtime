@@ -35,6 +35,14 @@ function(add_audx_test test_name)
         audx_src
     )
 
+    # Enable LTO for tests if enabled globally (Android Release builds)
+    # This ensures test executables can link with LTO-compiled libraries
+    if(CMAKE_INTERPROCEDURAL_OPTIMIZATION)
+        set_target_properties(${test_name} PROPERTIES
+            INTERPROCEDURAL_OPTIMIZATION ON
+        )
+    endif()
+
     add_test(NAME ${test_name} COMMAND ${test_name})
 
     set_tests_properties(${test_name} PROPERTIES

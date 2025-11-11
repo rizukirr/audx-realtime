@@ -12,14 +12,20 @@ else()
     set(CMAKE_C_FLAGS_RELEASE "-O3 -march=native -DNDEBUG")
     set(CMAKE_C_FLAGS_RELWITHDEBINFO "-O2 -g -march=native -DNDEBUG")
 endif()
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 
 # Allow choosing shared or static via -DBUILD_SHARED_LIBS
 option(BUILD_SHARED_LIBS "Build shared instead of static libraries" ON)
+
+# Enable LTO for Android Release builds (improves performance while reducing size)
+if(ANDROID AND CMAKE_BUILD_TYPE STREQUAL "Release")
+    set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ON)
+    message(STATUS "LTO enabled for Android Release build")
+endif()
 
 # Build RNNoise from source
 if(EXISTS "${CMAKE_SOURCE_DIR}/external/rnnoise/src/rnn.c")
@@ -46,12 +52,17 @@ if(EXISTS "${CMAKE_SOURCE_DIR}/external/rnnoise/src/rnn.c")
     # RNNoise compile definitions
     target_compile_definitions(rnnoise PRIVATE
         COMPILE_OPUS
-        _FORTIFY_SOURCE=0
     )
 
     # Enable x86 SIMD optimizations
     if(CMAKE_SYSTEM_PROCESSOR MATCHES "(x86)|(X86)|(amd64)|(AMD64)" OR
        ANDROID_ABI STREQUAL "x86" OR ANDROID_ABI STREQUAL "x86_64")
+
+        # Enable runtime CPU detection for x86 (avoids compile-time warnings)
+        target_compile_definitions(rnnoise PRIVATE
+            RNN_ENABLE_X86_RTCD
+            CPU_INFO_BY_C  # Use __get_cpuid_count intrinsic
+        )
 
         if(NOT ANDROID)
             # Desktop builds can use -march=native for auto-detection
@@ -109,7 +120,7 @@ file(GLOB_RECURSE SRC_FILES "src/audx/*.c")
 # Define the library (shared or static depends on BUILD_SHARED_LIBS)
 add_library(audx_src ${SRC_FILES})
 target_include_directories(audx_src PUBLIC
-    include/audx
+    ${CMAKE_SOURCE_DIR}/include
     ${CMAKE_SOURCE_DIR}/external/rnnoise/include
 )
 
@@ -151,6 +162,10 @@ endif()
 if(ANDROID)
     message(STATUS "Building for Android...")
     target_compile_definitions(audx_src PUBLIC AUDX_ANDROID=1)
+
+    # Note: Hidden visibility disabled to allow tests to link properly with LTO
+    # If symbol visibility becomes an issue, add explicit __attribute__((visibility("default")))
+    # to public API functions in denoiser.h
 else()
     message(STATUS "Building for desktop...")
 endif()

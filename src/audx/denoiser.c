@@ -1,5 +1,5 @@
-#include "denoiser.h"
-#include "logger.h"
+#include "audx/denoiser.h"
+#include "audx/logger.h"
 #include <fcntl.h>
 #include <rnnoise.h>
 #include <stdbool.h>
@@ -186,20 +186,12 @@ int denoiser_create(const struct DenoiserConfig *config,
   if (!config || !denoiser) {
     AUDX_LOGE("denoiser_create: Invalid arguments (config=%p, denoiser=%p)",
               (void *)config, (void *)denoiser);
-    return REALTIME_DENOISER_ERROR_INVALID;
+    return AUDX_ERROR_INVALID;
   }
 
   memset(denoiser, 0, sizeof(*denoiser));
 
-  denoiser->num_channels = config->num_channels > 0 ? config->num_channels : 1;
-
-  // Only mono is supported in this optimized version
-  if (denoiser->num_channels != 1) {
-    AUDX_LOGE(
-        "Invalid channel count: %d (only mono supported in optimized version)",
-        denoiser->num_channels);
-    return REALTIME_DENOISER_ERROR_INVALID;
-  }
+  denoiser->num_channels = 1;
 
   denoiser->vad_threshold =
       (config->vad_threshold > 0.0f) ? config->vad_threshold : 0.5f;
@@ -220,7 +212,7 @@ int denoiser_create(const struct DenoiserConfig *config,
       snprintf(denoiser->error_buffer, sizeof(denoiser->error_buffer),
                "Failed to load model from file: %s", config->model_path);
       AUDX_LOGE("Failed to load model from: %s", config->model_path);
-      return REALTIME_DENOISER_ERROR_MODEL;
+      return AUDX_ERROR_MODEL;
     }
   }
 
@@ -229,28 +221,28 @@ int denoiser_create(const struct DenoiserConfig *config,
   if (!denoiser->denoiser_state) {
     AUDX_LOGE("Failed to create rnnoise denoiser");
     denoiser_cleanup_partial(denoiser);
-    return REALTIME_DENOISER_ERROR_MEMORY;
+    return AUDX_ERROR_MEMORY;
   }
 
   /* Allocate single processing buffer for frame conversion */
-  denoiser->processing_buffer = (float *)calloc(FRAME_SIZE, sizeof(float));
+  denoiser->processing_buffer = (float *)calloc(AUDX_FRAME_SIZE, sizeof(float));
   if (!denoiser->processing_buffer) {
     AUDX_LOGE("Failed to allocate processing buffer");
     denoiser_cleanup_partial(denoiser);
-    return REALTIME_DENOISER_ERROR_MEMORY;
+    return AUDX_ERROR_MEMORY;
   }
 
   AUDX_LOGI("Denoiser created successfully: mono optimized");
-  return REALTIME_DENOISER_SUCCESS;
+  return AUDX_SUCCESS;
 }
 
 /* --- Main Real-Time Frame Processing (Optimized) --- */
 int denoiser_process(struct Denoiser *denoiser, const int16_t *input_pcm,
                      int16_t *output_pcm, struct DenoiserResult *result) {
   if (!denoiser || !input_pcm || !output_pcm)
-    return REALTIME_DENOISER_ERROR_INVALID;
+    return AUDX_ERROR_INVALID;
 
-  const int frame_size = FRAME_SIZE;
+  const int frame_size = AUDX_FRAME_SIZE;
 
   /* Process mono audio directly (no threads, no extra copies, no timing
    * overhead) */
@@ -285,7 +277,7 @@ int denoiser_process(struct Denoiser *denoiser, const int16_t *input_pcm,
     if (denoiser->enable_vad_output) {
       result->vad_probability = vad_score;
       result->is_speech = (vad_score >= denoiser->vad_threshold);
-      result->samples_processed = FRAME_SIZE;
+      result->samples_processed = AUDX_FRAME_SIZE;
     } else {
       // VAD disabled: don't populate result fields
       result->vad_probability = 0.0f;
@@ -294,7 +286,7 @@ int denoiser_process(struct Denoiser *denoiser, const int16_t *input_pcm,
     }
   }
 
-  return REALTIME_DENOISER_SUCCESS;
+  return AUDX_SUCCESS;
 }
 
 /* --- Clean Up --- */

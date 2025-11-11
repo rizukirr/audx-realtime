@@ -1,6 +1,10 @@
 # audx-realtime
 
-Real-time audio denoising library using Recurrent Neural Networks (RNNoise). Provides low-latency noise suppression for 48kHz audio with support for mono and stereo processing written in C.
+Real-time audio denoising library using Recurrent Neural Networks (RNNoise). Provides low-latency noise suppression for 48kHz mono audio written in C with SIMD optimizations.
+
+**Related Projects:**
+
+- [audx-android](https://github.com/rizukirr/audx-android) - Android library wrapper with Kotlin/Java API
 
 ## Algorithm
 
@@ -57,10 +61,11 @@ Denoised Audio Output
 
 - **Real-time processing**: Optimized for low-latency audio applications
 - **SIMD acceleration**: SSE4.1/AVX2 (x86) and NEON (ARM) optimizations
-- **Multi-threaded stereo**: Parallel channel processing using worker threads
+- **Mono audio processing**: Single-channel optimized for minimal overhead
 - **Voice Activity Detection (VAD)**: Integrated speech detection with configurable threshold
+- **Audio format validation**: Built-in validation with descriptive error messages
 - **Custom model support**: Load user-trained models at runtime
-- **Cross-platform**: Linux, Android (arm64-v8a, armeabi-v7a, x86, x86_64)
+- **Cross-platform**: Linux, Android (arm64-v8a, x86_64)
 
 ## Build Requirements
 
@@ -74,9 +79,10 @@ Denoised Audio Output
 
 ### Android-Specific
 
-- **Android NDK** 29.0.14206865 (or compatible version)
+- **Android NDK** 27.0+ (29.0.14206865 recommended)
 - **ANDROID_HOME** environment variable set
 - Minimum API level: 21
+- **Note**: For Android integration, see [audx-android](https://github.com/rizukirr/audx-android) project
 
 ### Submodules
 
@@ -126,15 +132,9 @@ export ANDROID_HOME=/path/to/android/sdk
 ./scripts/build.sh android
 ```
 
-#### All ABIs
+**Output:** `build/android/libs/arm64-v8a/libaudx_src.so`
 
-```bash
-./scripts/android.sh
-```
-
-Builds for: `arm64-v8a`, `armeabi-v7a`, `x86`, `x86_64`
-
-**Output:** `libs/{ABI}/libaudx_src.so`
+**Note**: Currently only arm64-v8a is built by default. For integration with audx-android, copy the built library to the Android project's `jniLibs/` directory.
 
 **Android Compilation:**
 
@@ -170,7 +170,7 @@ audx_realtime [OPTIONS] <input.pcm> <output.pcm>
 
 **Options:**
 
-- `-c, --channels=N`: Number of channels (1=mono, 2=stereo)
+- `-c, --channels=N`: Number of channels (must be 1 for mono)
 - `-m, --model=PATH`: Path to custom RNNoise model
 - `-t, --threshold=VAL`: VAD threshold (0.0-1.0, default: 0.5)
 - `-v, --vad`: Enable VAD output in results
@@ -183,8 +183,8 @@ audx_realtime [OPTIONS] <input.pcm> <output.pcm>
 # Mono audio with default settings
 audx_realtime input.pcm output.pcm
 
-# Stereo with custom VAD threshold
-audx_realtime -c 2 -t 0.3 stereo_input.pcm stereo_output.pcm
+# Custom VAD threshold
+audx_realtime -t 0.3 input.pcm output.pcm
 
 # Use custom trained model
 audx_realtime --model=my_model.rnnn input.pcm output.pcm
@@ -193,6 +193,8 @@ audx_realtime --model=my_model.rnnn input.pcm output.pcm
 audx_realtime --no-vad input.pcm output.pcm
 ```
 
+**Note**: Only mono (single-channel) audio is currently supported. The `-c` option is kept for compatibility but must be 1.
+
 ### API Usage
 
 ```c
@@ -200,7 +202,6 @@ audx_realtime --no-vad input.pcm output.pcm
 
 // 1. Configure denoiser
 struct DenoiserConfig config = {
-    .num_channels = 1,              // 1=mono, 2=stereo
     .model_preset = MODEL_EMBEDDED, // or MODEL_CUSTOM
     .model_path = NULL,             // for custom models: "path/to/model.rnnn"
     .vad_threshold = 0.5f,          // 0.0-1.0 (speech detection sensitivity)
@@ -210,26 +211,30 @@ struct DenoiserConfig config = {
 // 2. Create denoiser instance
 struct Denoiser denoiser;
 int ret = denoiser_create(&config, &denoiser);
-if (ret != REALTIME_DENOISER_SUCCESS) {
+if (ret != AUDX_SUCCESS) {
     fprintf(stderr, "Error: %s\n", get_denoiser_error(&denoiser));
     return -1;
 }
 
-// 3. Process audio frames (480 samples per channel)
-int16_t input[480];  // Mono: 480 samples, Stereo: 960 samples (interleaved)
+// 3. Process audio frames (480 samples for mono)
+int16_t input[480];  // Mono: 480 samples
 int16_t output[480]; // Same size as input
 struct DenoiserResult result;
 
 ret = denoiser_process(&denoiser, input, output, &result);
-if (ret == REALTIME_DENOISER_SUCCESS) {
+if (ret == AUDX_SUCCESS) {
     printf("VAD probability: %.3f\n", result.vad_probability);
     printf("Speech detected: %s\n", result.is_speech ? "yes" : "no");
     printf("Samples processed: %d\n", result.samples_processed);
 }
 
 // 4. Get statistics
-const char *stats = get_denoiser_stats(&denoiser);
-printf("%s\n", stats);
+struct DenoiserStats stats;
+ret = get_denoiser_stats(&denoiser, &stats);
+if (ret == AUDX_SUCCESS) {
+    printf("Frames processed: %d\n", stats.frame_processed);
+    printf("Speech detected: %.1f%%\n", stats.speech_detected);
+}
 
 // 5. Cleanup
 denoiser_destroy(&denoiser);
@@ -237,20 +242,33 @@ denoiser_destroy(&denoiser);
 
 ### Audio Format Requirements
 
-- **Sample rate**: 48 kHz (required)
-- **Bit depth**: 16-bit signed PCM
-- **Frame size**: Exactly 480 samples per channel
-- **Stereo format**: Interleaved [L, R, L, R, ...]
+- **Sample rate**: 48 kHz / 48000 Hz (required) - `AUDX_SAMPLE_RATE_48KHZ`
+- **Channels**: Mono only (1 channel) - `AUDX_CHANNELS_MONO`
+- **Bit depth**: 16-bit signed PCM - `AUDX_BIT_DEPTH_16`
+- **Frame size**: Exactly 480 samples - `AUDX_FRAME_SIZE`
 - **Endianness**: Native/little-endian
+
+**Format Constants:**
+
+The library defines constants for audio format requirements:
+
+```c
+AUDX_SAMPLE_RATE_48KHZ  // 48000 Hz
+AUDX_CHANNELS_MONO      // 1 channel
+AUDX_BIT_DEPTH_16       // 16-bit PCM
+AUDX_FRAME_SIZE         // 480 samples
+```
+
+These constants are exposed to Kotlin/Java in the audx-android project via JNI, providing a single source of truth for format requirements.
 
 ### Error Codes
 
 ```c
-REALTIME_DENOISER_SUCCESS        //  0: Success
-REALTIME_DENOISER_ERROR_INVALID  // -1: Invalid parameters
-REALTIME_DENOISER_ERROR_MEMORY   // -2: Memory allocation failed
-REALTIME_DENOISER_ERROR_MODEL    // -3: Model loading failed
-REALTIME_DENOISER_ERROR_FORMAT   // -4: Audio format error
+AUDX_SUCCESS        //  0: Success
+AUDX_ERROR_INVALID  // -1: Invalid parameters
+AUDX_ERROR_MEMORY   // -2: Memory allocation failed
+AUDX_ERROR_MODEL    // -3: Model loading failed
+AUDX_ERROR_FORMAT   // -4: Audio format error
 ```
 
 ### Thread Safety
@@ -259,7 +277,7 @@ REALTIME_DENOISER_ERROR_FORMAT   // -4: Audio format error
 
 - Statistics fields (`frames_processed`, etc.) are **NOT thread-safe**
 - Do **NOT** call `denoiser_process()` concurrently from multiple threads
-- Stereo processing uses internal worker threads automatically (transparent to user)
+- Mono processing uses single-threaded design for minimal overhead
 
 For multi-stream processing, create separate `Denoiser` instances per stream.
 
@@ -422,32 +440,28 @@ The library automatically leverages CPU-specific SIMD instructions:
 
 - Portable scalar C implementation for unsupported platforms
 
-### Multi-threading Architecture
+### Processing Architecture
 
-**Mono processing**: Single-threaded, direct processing
-
-**Stereo processing**: Parallel channel processing with worker threads
-
-- One pthread worker per channel
-- Lock-free during neural network inference
-- Mutex-protected buffer copy operations
-- Condition variables for work dispatch/completion
-
-**Processing flow (stereo):**
+**Mono processing**: Single-threaded, optimized direct processing path
 
 ```
-Main Thread              Worker Thread 1        Worker Thread 2
-    ↓                           ↓                      ↓
-Deinterleave [L,R]      Wait for work          Wait for work
-    ↓                           ↓                      ↓
-Copy to worker buffers  Copy input → output    Copy input → output
-    ↓                           ↓                      ↓
-Signal workers          RNNoise inference      RNNoise inference
-    ↓                           ↓                      ↓
-Wait for completion     Signal done            Signal done
-    ↓                           ↓                      ↓
-Interleave [L,R]        Wait for next work     Wait for next work
+Input Audio (480 int16 samples)
+    ↓
+Convert int16 → float (SIMD optimized)
+    ↓
+RNNoise inference (GRU + CNN)
+    ↓
+Convert float → int16 (SIMD optimized)
+    ↓
+Output Audio (480 int16 samples)
 ```
+
+**Performance characteristics:**
+
+- No thread synchronization overhead
+- Direct memory access
+- Minimal latency
+- Optimal for real-time applications
 
 ### Timing Statistics
 
@@ -478,13 +492,13 @@ Last frame time: 0.003 ms
 
 ### Memory Usage
 
-Per-channel memory allocation:
+Mono processing memory allocation:
 
 - **RNNoise state**: ~180KB (GRU states + FFT buffers)
-- **Processing buffers**: ~2KB (480 floats × 2)
-- **Total per channel**: ~256KB
+- **Processing buffer**: ~2KB (480 floats)
+- **Total**: ~182KB
 
-**Stereo overhead**: +2 pthreads, +2 mutexes, +4 condition variables
+**No threading overhead**: Single-threaded design eliminates pthread, mutex, and condition variable overhead
 
 ## Testing
 
@@ -568,19 +582,29 @@ Format: 48kHz, 16-bit PCM, ~70 seconds each
 
 ### Android Integration
 
-The library builds as a native library for Android:
+The library builds as a native library for Android. For complete Android integration with Kotlin/Java API, use the **[audx-android](https://github.com/rizukirr/audx-android)** project.
 
 ```bash
-# Build all ABIs
-./scripts/android.sh
+# Build for arm64-v8a
+./scripts/build.sh android
 
-# Copy to Android project
-cp -r libs/* /path/to/android/project/src/main/jniLibs/
+# Output location
+build/android/libs/arm64-v8a/libaudx_src.so
 ```
 
-**JNI bindings** (not included): Implement JNI wrapper in your Android project to call the C API.
+**Using audx-android:**
 
-**Android logging**: Use `__android_log_print()` for debug output.
+The audx-android project provides:
+
+- Kotlin/Java API with coroutines support
+- JNI bridge implementation
+- Audio format validation (constants exposed via JNI)
+- Builder pattern for configuration
+- Comprehensive examples and tests
+
+See the [audx-android repository](https://github.com/rizukirr/audx-android) for integration instructions.
+
+**Android logging**: Library uses `__android_log_print()` for debug output (visible via `logcat`).
 
 ### Desktop Linux
 
