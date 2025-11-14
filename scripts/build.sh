@@ -21,36 +21,6 @@ debug)
     -DCMAKE_C_COMPILER=clang
   cmake --build build/debug --clean-first
   ;;
-
-android)
-  echo "Building for Android..."
-  NDK_PATH="${ANDROID_HOME}/ndk/29.0.14206865" # adjust your version here
-  ABI="arm64-v8a"
-  API=29  # Android 10 minimum
-
-  if [[ ! -d "$NDK_PATH" ]]; then
-    echo "NDK path not found at: $NDK_PATH"
-    exit 1
-  fi
-
-  cmake -S . -B build/android \
-    -DCMAKE_TOOLCHAIN_FILE="$NDK_PATH/build/cmake/android.toolchain.cmake" \
-    -DANDROID_ABI="$ABI" \
-    -DANDROID_PLATFORM="android-$API" \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DBUILD_SHARED_LIBS=ON \
-    -DCMAKE_LIBRARY_OUTPUT_DIRECTORY="${PWD}/build/android/libs/$ABI"
-
-  cmake --build build/android -j"$(nproc)"
-
-  # Strip symbols to reduce size (30-40% reduction, no performance impact)
-  echo "Stripping symbols..."
-  ${NDK_PATH}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip \
-    "build/android/lib/libaudx_src.so"
-
-  echo "Android build done: build/android/libs/$ABI/libaudx_src.so"
-  ;;
-
 *)
   echo "Usage: $0 [debug|release|android]"
   exit 1

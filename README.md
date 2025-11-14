@@ -211,7 +211,7 @@ struct DenoiserConfig config = {
 // 2. Create denoiser instance
 struct Denoiser denoiser;
 int ret = denoiser_create(&config, &denoiser);
-if (ret != AUDX_SUCCESS) {
+if (ret != AUDX_DENOISER_SUCCESS) {
     fprintf(stderr, "Error: %s\n", get_denoiser_error(&denoiser));
     return -1;
 }
@@ -222,7 +222,7 @@ int16_t output[480]; // Same size as input
 struct DenoiserResult result;
 
 ret = denoiser_process(&denoiser, input, output, &result);
-if (ret == AUDX_SUCCESS) {
+if (ret == AUDX_DENOISER_SUCCESS) {
     printf("VAD probability: %.3f\n", result.vad_probability);
     printf("Speech detected: %s\n", result.is_speech ? "yes" : "no");
     printf("Samples processed: %d\n", result.samples_processed);
@@ -231,7 +231,7 @@ if (ret == AUDX_SUCCESS) {
 // 4. Get statistics
 struct DenoiserStats stats;
 ret = get_denoiser_stats(&denoiser, &stats);
-if (ret == AUDX_SUCCESS) {
+if (ret == AUDX_DENOISER_SUCCESS) {
     printf("Frames processed: %d\n", stats.frame_processed);
     printf("Speech detected: %.1f%%\n", stats.speech_detected);
 }
@@ -242,10 +242,10 @@ denoiser_destroy(&denoiser);
 
 ### Audio Format Requirements
 
-- **Sample rate**: 48 kHz / 48000 Hz (required) - `AUDX_SAMPLE_RATE_48KHZ`
-- **Channels**: Mono only (1 channel) - `AUDX_CHANNELS_MONO`
-- **Bit depth**: 16-bit signed PCM - `AUDX_BIT_DEPTH_16`
-- **Frame size**: Exactly 480 samples - `AUDX_FRAME_SIZE`
+- **Sample rate**: 48 kHz / 48000 Hz (required) - `AUDX_DEFAULT_SAMPLE_RATE`
+- **Channels**: Mono only (1 channel) - `AUDX_DEFAULT_CHANNELS`
+- **Bit depth**: 16-bit signed PCM - `AUDX_DEFAULT_BUT_DEPTH`
+- **Frame size**: Exactly 480 samples - `AUDX_DEFAULT_FRAME_SIZE`
 - **Endianness**: Native/little-endian
 
 **Format Constants:**
@@ -253,10 +253,10 @@ denoiser_destroy(&denoiser);
 The library defines constants for audio format requirements:
 
 ```c
-AUDX_SAMPLE_RATE_48KHZ  // 48000 Hz
-AUDX_CHANNELS_MONO      // 1 channel
-AUDX_BIT_DEPTH_16       // 16-bit PCM
-AUDX_FRAME_SIZE         // 480 samples
+AUDX_DEFAULT_SAMPLE_RATE  // 48000 Hz
+AUDX_DEFAULT_CHANNELS      // 1 channel
+AUDX_DEFAULT_BUT_DEPTH       // 16-bit PCM
+AUDX_DEFAULT_FRAME_SIZE         // 480 samples
 ```
 
 These constants are exposed to Kotlin/Java in the audx-android project via JNI, providing a single source of truth for format requirements.
@@ -264,11 +264,11 @@ These constants are exposed to Kotlin/Java in the audx-android project via JNI, 
 ### Error Codes
 
 ```c
-AUDX_SUCCESS        //  0: Success
-AUDX_ERROR_INVALID  // -1: Invalid parameters
-AUDX_ERROR_MEMORY   // -2: Memory allocation failed
-AUDX_ERROR_MODEL    // -3: Model loading failed
-AUDX_ERROR_FORMAT   // -4: Audio format error
+AUDX_DENOISER_SUCCESS        //  0: Success
+AUDX_DENOISER_ERROR_INVALID  // -1: Invalid parameters
+AUDX_DENOISER_ERROR_MEMORY   // -2: Memory allocation failed
+AUDX_DENOISER_ERROR_MODEL    // -3: Model loading failed
+AUDX_DENOISER_FORMAT   // -4: Audio format error
 ```
 
 ### Thread Safety

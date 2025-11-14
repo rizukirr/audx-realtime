@@ -110,8 +110,70 @@ if(EXISTS "${CMAKE_SOURCE_DIR}/external/rnnoise/src/rnn.c")
 
     set(HAVE_RNNOISE TRUE)
     message(STATUS "Building RNNoise from source")
+
+
 else()
     message(FATAL_ERROR "RNNoise not found. Run: git submodule update --init")
+endif()
+
+# Build SpeexDSP resampler from source
+if(EXISTS "${CMAKE_SOURCE_DIR}/external/speexdsp/libspeexdsp/resample.c")
+    add_library(speexdsp STATIC
+        ${CMAKE_SOURCE_DIR}/external/speexdsp/libspeexdsp/resample.c
+    )
+    target_include_directories(speexdsp PUBLIC
+        ${CMAKE_SOURCE_DIR}/external/speexdsp/include
+    )
+    target_include_directories(speexdsp PRIVATE
+        ${CMAKE_SOURCE_DIR}/external/speexdsp/include/speex
+        ${CMAKE_SOURCE_DIR}/external/speexdsp/libspeexdsp
+    )
+
+    # Enable PIC for static library when building shared libraries
+    set_target_properties(speexdsp PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
+    # Suppress warnings from third-party code
+    target_compile_options(speexdsp PRIVATE -Wno-sign-compare)
+
+    # SpeexDSP compile definitions
+    target_compile_definitions(speexdsp PRIVATE
+        OUTSIDE_SPEEX
+        FLOATING_POINT
+        EXPORT=
+        RANDOM_PREFIX=audx
+    )
+
+    # Enable SSE optimization for x86
+    if(CMAKE_SYSTEM_PROCESSOR MATCHES "(x86)|(X86)|(amd64)|(AMD64)" OR
+       ANDROID_ABI STREQUAL "x86" OR ANDROID_ABI STREQUAL "x86_64")
+        target_compile_definitions(speexdsp PRIVATE USE_SSE)
+        if(NOT ANDROID)
+            target_compile_options(speexdsp PRIVATE -msse)
+        endif()
+    endif()
+
+    # Enable NEON optimization for ARM
+    if(ANDROID)
+        if(ANDROID_ABI STREQUAL "armeabi-v7a")
+            target_compile_definitions(speexdsp PRIVATE USE_NEON)
+            target_compile_options(speexdsp PRIVATE -mfpu=neon)
+            message(STATUS "Enabled ARM NEON for SpeexDSP resampler (armeabi-v7a)")
+        elseif(ANDROID_ABI STREQUAL "arm64-v8a")
+            target_compile_definitions(speexdsp PRIVATE USE_NEON)
+            message(STATUS "Enabled ARM NEON for SpeexDSP resampler (arm64-v8a)")
+        endif()
+    elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^(arm|aarch64)")
+        target_compile_definitions(speexdsp PRIVATE USE_NEON)
+        if(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64")
+            target_compile_options(speexdsp PRIVATE -mfpu=neon)
+        endif()
+        message(STATUS "Enabled ARM NEON for SpeexDSP resampler")
+    endif()
+
+    set(HAVE_SPEEXDSP TRUE)
+    message(STATUS "Building SpeexDSP resampler from source")
+else()
+    message(FATAL_ERROR "SpeexDSP not found. Run: git submodule update --init")
 endif()
 
 # Source files
@@ -122,17 +184,37 @@ add_library(audx_src ${SRC_FILES})
 target_include_directories(audx_src PUBLIC
     ${CMAKE_SOURCE_DIR}/include
     ${CMAKE_SOURCE_DIR}/external/rnnoise/include
+    ${CMAKE_SOURCE_DIR}/external/speexdsp/include
+    ${CMAKE_SOURCE_DIR}/external/speexdsp/include/speex
 )
 
-# Link RNNoise
-if(ANDROID)
-    target_link_libraries(audx_src PUBLIC rnnoise m log)
+# Link RNNoise and SpeexDSP
+# Use -Wl,--whole-archive to ensure static library symbols are included in shared library
+if(BUILD_SHARED_LIBS)
+    if(ANDROID)
+        target_link_libraries(audx_src PUBLIC
+            -Wl,--whole-archive rnnoise speexdsp -Wl,--no-whole-archive m log)
+    else()
+        target_link_libraries(audx_src PUBLIC
+            -Wl,--whole-archive rnnoise speexdsp -Wl,--no-whole-archive m)
+    endif()
 else()
-    target_link_libraries(audx_src PUBLIC rnnoise m)
+    # For static builds, regular linking is fine
+    if(ANDROID)
+        target_link_libraries(audx_src PUBLIC rnnoise speexdsp m log)
+    else()
+        target_link_libraries(audx_src PUBLIC rnnoise speexdsp m)
+    endif()
 endif()
 
 # Version define
 target_compile_definitions(audx_src PUBLIC AUDX_VERSION="${PROJECT_VERSION}")
+
+# SpeexDSP resampler needs these definitions to match the library build
+target_compile_definitions(audx_src PRIVATE
+    OUTSIDE_SPEEX
+    RANDOM_PREFIX=audx
+)
 
 # Enable SIMD optimizations for audx_src
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "(x86)|(X86)|(amd64)|(AMD64)" OR

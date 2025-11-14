@@ -50,3 +50,5 @@ function(add_audx_test test_name)
 endfunction()
 
 add_audx_test(test_denoiser unit/test_denoiser.c)
+add_audx_test(test_resampler unit/test_resampler.c)
+add_audx_test(test_audx_realtime unit/test_audx_realtime.c)

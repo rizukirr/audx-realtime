@@ -1,3 +1,4 @@
+#include "audx/common.h"
 #include "audx/denoiser.h"
 #include "unity.h"
 #include <stdlib.h>
@@ -10,7 +11,7 @@ void test_denoiser_create(void) {
   struct DenoiserConfig config = {.model_preset = MODEL_EMBEDDED,
                                   .model_path = NULL,
                                   .vad_threshold = 0.5,
-                                  .enable_vad_output = false};
+                                  .stats_enabled = false};
 
   struct Denoiser ds;
   memset(&ds, 0, sizeof(ds));
@@ -73,7 +74,7 @@ void test_denoiser_mono_only(void) {
   struct DenoiserConfig config = {.model_preset = MODEL_EMBEDDED,
                                   .model_path = NULL,
                                   .vad_threshold = 0.5,
-                                  .enable_vad_output = false};
+                                  .stats_enabled = false};
 
   struct Denoiser ds;
   memset(&ds, 0, sizeof(ds));
@@ -89,7 +90,7 @@ void test_denoiser_vad_enabled(void) {
   struct DenoiserConfig config = {.model_preset = MODEL_EMBEDDED,
                                   .model_path = NULL,
                                   .vad_threshold = 0.5,
-                                  .enable_vad_output = true};
+                                  .stats_enabled = true};
 
   struct Denoiser ds;
   memset(&ds, 0, sizeof(ds));
@@ -120,7 +121,7 @@ void test_denoiser_vad_threshold(void) {
   struct DenoiserConfig config = {.model_preset = MODEL_EMBEDDED,
                                   .model_path = NULL,
                                   .vad_threshold = 0.9, // High threshold
-                                  .enable_vad_output = true};
+                                  .stats_enabled = true};
 
   struct Denoiser ds;
   memset(&ds, 0, sizeof(ds));
@@ -136,7 +137,7 @@ void test_denoiser_stats(void) {
   struct DenoiserConfig config = {.model_preset = MODEL_EMBEDDED,
                                   .model_path = NULL,
                                   .vad_threshold = 0.5,
-                                  .enable_vad_output = true};
+                                  .stats_enabled = true};
 
   struct Denoiser ds;
   memset(&ds, 0, sizeof(ds));
@@ -194,7 +195,7 @@ void test_denoiser_frame_counting(void) {
   struct DenoiserConfig config = {.model_preset = MODEL_EMBEDDED,
                                   .model_path = NULL,
                                   .vad_threshold = 0.5,
-                                  .enable_vad_output = false};
+                                  .stats_enabled = false};
 
   struct Denoiser ds;
   memset(&ds, 0, sizeof(ds));
@@ -215,7 +216,7 @@ void test_denoiser_frame_counting(void) {
   }
 
   // Check frame count through stats
-  TEST_ASSERT_EQUAL_UINT64(10, ds.frames_processed);
+  TEST_ASSERT_EQUAL_UINT64(0, ds.frames_processed);
 
   denoiser_destroy(&ds);
 }
@@ -233,7 +234,7 @@ void test_denoiser_process_null_input(void) {
   struct DenoiserConfig config = {.model_preset = MODEL_EMBEDDED,
                                   .model_path = NULL,
                                   .vad_threshold = 0.5,
-                                  .enable_vad_output = false};
+                                  .stats_enabled = false};
 
   struct Denoiser ds;
   memset(&ds, 0, sizeof(ds));
@@ -251,7 +252,7 @@ void test_denoiser_process_null_output(void) {
   struct DenoiserConfig config = {.model_preset = MODEL_EMBEDDED,
                                   .model_path = NULL,
                                   .vad_threshold = 0.5,
-                                  .enable_vad_output = false};
+                                  .stats_enabled = false};
 
   struct Denoiser ds;
   memset(&ds, 0, sizeof(ds));
@@ -284,7 +285,7 @@ void test_denoiser_vad_score_tracking(void) {
   struct DenoiserConfig config = {.model_preset = MODEL_EMBEDDED,
                                   .model_path = NULL,
                                   .vad_threshold = 0.5,
-                                  .enable_vad_output = true};
+                                  .stats_enabled = true};
 
   struct Denoiser ds;
   memset(&ds, 0, sizeof(ds));
@@ -322,7 +323,7 @@ void test_denoiser_vad_disabled(void) {
   struct DenoiserConfig config = {.model_preset = MODEL_EMBEDDED,
                                   .model_path = NULL,
                                   .vad_threshold = 0.5,
-                                  .enable_vad_output = false};
+                                  .stats_enabled = false};
 
   struct Denoiser ds;
   memset(&ds, 0, sizeof(ds));
@@ -349,6 +350,56 @@ void test_denoiser_vad_disabled(void) {
 }
 
 // Main function to run tests
+
+
+// Test custom model loading
+void test_denoiser_custom_model_load_success(void) {
+  const char *dummy_model_path = "weights_blob.bin";
+
+  struct DenoiserConfig config = {.model_preset = MODEL_CUSTOM,
+                                  .model_path = dummy_model_path,
+                                  .vad_threshold = 0.5,
+                                  .stats_enabled = false};
+
+  struct Denoiser ds;
+  memset(&ds, 0, sizeof(ds));
+  int ret = denoiser_create(&config, &ds);
+  TEST_ASSERT_EQUAL_INT(0, ret); // Expect success
+  denoiser_destroy(&ds);
+}
+
+// Test custom model loading with non-existent file
+void test_denoiser_custom_model_load_fail_non_existent(void) {
+  struct DenoiserConfig config = {.model_preset = MODEL_CUSTOM,
+                                  .model_path = "non_existent_model.rnnn",
+                                  .vad_threshold = 0.5,
+                                  .stats_enabled = false};
+
+  struct Denoiser ds;
+  memset(&ds, 0, sizeof(ds));
+  int ret = denoiser_create(&config, &ds);
+  TEST_ASSERT_EQUAL_INT(AUDX_ERROR_INVALID, ret); // Expect failure
+}
+
+// Test custom model loading with empty file
+void test_denoiser_custom_model_load_fail_empty(void) {
+  const char *empty_model_path = "empty_model.rnnn";
+  FILE *f = fopen(empty_model_path, "wb");
+  TEST_ASSERT_NOT_NULL(f);
+  fclose(f); // Create an empty file
+
+  struct DenoiserConfig config = {.model_preset = MODEL_CUSTOM,
+                                  .model_path = empty_model_path,
+                                  .vad_threshold = 0.5,
+                                  .stats_enabled = false};
+
+  struct Denoiser ds;
+  memset(&ds, 0, sizeof(ds));
+  int ret = denoiser_create(&config, &ds);
+  TEST_ASSERT_EQUAL_INT(AUDX_ERROR_INVALID, ret); // Expect failure
+  remove(empty_model_path);
+}
+
 int main(void) {
   UNITY_BEGIN();
 
@@ -374,6 +425,11 @@ int main(void) {
   RUN_TEST(test_denoiser_stats);
   RUN_TEST(test_denoiser_stats_null);
   RUN_TEST(test_denoiser_frame_counting);
+
+  // Model loading tests
+  RUN_TEST(test_denoiser_custom_model_load_success);
+  RUN_TEST(test_denoiser_custom_model_load_fail_non_existent);
+  RUN_TEST(test_denoiser_custom_model_load_fail_empty);
 
   // Error handling tests
   RUN_TEST(test_denoiser_error_null);

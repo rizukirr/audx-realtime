@@ -16,63 +16,6 @@ typedef struct RNNModel RNNModel;
 #endif
 
 /**
- * @def AUDX_SAMPLE_RATE_48KHZ
- * @brief Standard audio sample rate used by the denoiser (48 kHz).
- *
- * RNNoise and most real-time speech enhancement models are designed to
- * operate at 48,000 samples per second.
- */
-#define AUDX_SAMPLE_RATE_48KHZ 48000
-
-/**
- * @def AUDX_CHANNELS_MONO
- * @brief Number of audio channels (mono = 1).
- *
- * The denoiser processes single-channel (mono) audio input.
- */
-#define AUDX_CHANNELS_MONO 1
-
-/**
- * @def AUDX_BIT_DEPTH_16
- * @brief Bit depth of the PCM audio format (16 bits per sample).
- *
- * The audio is represented as signed 16-bit integers (PCM_S16LE).
- */
-#define AUDX_BIT_DEPTH_16 16
-
-/**
- * @def AUDX_FRAME_SIZE
- * @brief Frame size in samples for one 10 ms chunk at 48 kHz.
- *
- * RNNoise operates on 480-sample frames (10 ms @ 48 kHz).
- */
-#define AUDX_FRAME_SIZE 480
-
-/**
- * @def AUDX_SUCCESS
- * @brief Operation completed successfully.
- */
-#define AUDX_SUCCESS 0
-
-/**
- * @def AUDX_ERROR_INVALID
- * @brief Invalid argument or unsupported configuration.
- */
-#define AUDX_ERROR_INVALID -1
-
-/**
- * @def AUDX_ERROR_MEMORY
- * @brief Memory allocation failure.
- */
-#define AUDX_ERROR_MEMORY -2
-
-/**
- * @def AUDX_ERROR_MODEL
- * @brief Model loading or initialization failure.
- */
-#define AUDX_ERROR_MODEL -3
-
-/**
  * @struct DenoiserConfig
  * @brief Configuration parameters for initializing and controlling the
  * denoiser.
@@ -109,12 +52,12 @@ struct DenoiserConfig {
   float vad_threshold;
 
   /**
-   * Enable or disable VAD results in the denoiser output.
+   * Enable or disable statistics collection.
    *
-   * If true, the DenoiserResult struct will include valid VAD scores and
-   * speech flags. If false, VAD is disabled and results are not computed.
+   * If true, the Denoiser and DenoiserResult structs will include valid VAD scores,
+   * speech flags and other statistics. If false, statistics are not computed.
    */
-  bool enable_vad_output;
+  bool stats_enabled;
 };
 
 /**
@@ -210,12 +153,12 @@ struct Denoiser {
   float vad_threshold;
 
   /**
-   * Enable or disable VAD output in processing results.
+   * Enable or disable statistics collection.
    *
    * If true, the denoiser computes and reports VAD probability and
-   * speech detection flags in DenoiserResult.
+   * other statistics in DenoiserResult.
    */
-  bool enable_vad_output;
+  bool stats_enabled;
 
   /**
    * Internal RNNoise state for a single channel.
@@ -335,11 +278,23 @@ void denoiser_destroy(struct Denoiser *denoiser);
 const char *get_denoiser_error(struct Denoiser *denoiser);
 
 /**
- * @brief get statistics
+ * @brief Retrieve runtime statistics from the denoiser instance.
  *
- * @param denoiser  Denoiser to track
+ * Populates the provided @ref DenoiserStats structure with metrics
+ * about processed frames, VAD (Voice Activity Detection) scores, and
+ * performance timing information.
  *
- * @return Statistics string (do not free)
+ * @param denoiser Pointer to an initialized Denoiser instance.
+ * @param stats    Pointer to a DenoiserStats struct to be filled with results.
+ *
+ * @return
+ * - AUDX_DENOISER_SUCCESS (0) on success
+ * - AUDX_DENOISER_ERROR_INVALID (-1) if @p denoiser or @p stats is NULL
+ *
+ * @note This function does not allocate memory. The @p stats pointer must
+ *       point to valid writable memory provided by the caller.
+ *
+ * @see DenoiserStats
  */
 int get_denoiser_stats(struct Denoiser *denoiser, struct DenoiserStats *stats);
 

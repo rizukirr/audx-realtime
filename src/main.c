@@ -1,17 +1,16 @@
+#include "audx/audx_realtime.h"
+#include "audx/common.h"
 #include "audx/denoiser.h"
-#include "audx/model_loader.h"
+#include "audx/resample.h"
 #include <fcntl.h>
 #include <getopt.h>
+#include <stdatomic.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <time.h>
 
 /* Default configuration values */
-#define DEFAULT_CHANNELS 1
-#define DEFAULT_VAD_THRESHOLD 0.5f
-#define DEFAULT_ENABLE_VAD true
 
 static void print_usage(const char *program_name) {
   printf("Usage: %s [OPTIONS] <input.pcm> <output.pcm>\n", program_name);
@@ -23,50 +22,86 @@ static void print_usage(const char *program_name) {
   printf("  <output.pcm>         Output denoised PCM file\n");
   printf("\nOptional parameters:\n");
   printf("  -c, --channels=N     Number of channels: 1 (mono) or 2 (stereo)\n");
-  printf("                       Default: %d\n", DEFAULT_CHANNELS);
+  printf("                       Default: %d\n", AUDX_DEFAULT_CHANNELS);
+  printf("  -r, --rate=RATE      Input sample rate if not 48kHz\n");
+  printf("                       Audio will be resampled to 48kHz for "
+         "denoising\n");
+  printf("  -q, --resample-quality=N  Resampling quality (0-10)\n");
+  printf("                       0=fastest, 10=best quality\n");
+  printf("                       Default: %d\n", AUDX_DEFAULT_RESAMPLE_QUALITY);
   printf("  -m, --model=PATH     Path to custom RNNoise model file\n");
   printf("                       Default: embedded model\n");
   printf(
       "  -t, --threshold=VAL  VAD threshold (0.0-1.0 for speech detection)\n");
-  printf("                       Default: %.1f\n", DEFAULT_VAD_THRESHOLD);
-  printf("  -v, --vad            Enable VAD output in results\n");
-  printf("      --no-vad         Disable VAD output\n");
+  printf("                       Default: %.1f\n", AUDX_DEFAULT_VAD_THRESHOLD);
+  printf("  -s, --stats          Enable statistics output\n");
+  printf("      --no-stats       Disable statistics output\n");
   printf("                       Default: %s\n",
-         DEFAULT_ENABLE_VAD ? "enabled" : "disabled");
+         AUDX_DEFAULT_STATS_ENABLED ? "enabled" : "disabled");
   printf("  -h, --help           Show this help message\n");
   printf("\nExamples:\n");
   printf("  %s input.pcm output.pcm\n", program_name);
   printf("  %s -c 2 -t 0.3 input.pcm output.pcm\n", program_name);
   printf("  %s --model=custom.rnnn input.pcm output.pcm\n", program_name);
-  printf("  %s -c 1 -t 0.7 --no-vad input.pcm output.pcm\n", program_name);
+  printf("  %s -c 1 -t 0.7 --no-stats input.pcm output.pcm\n", program_name);
+  printf("  %s -r 24000 -q 5 input.pcm output.pcm\n", program_name);
+}
+
+void print_progress(int progress) {
+  printf("\rProcessing frame: %d", progress);
+  fflush(stdout);
 }
 
 int main(int argc, char *argv[]) {
   /* Default configuration */
-  int channels = DEFAULT_CHANNELS;
+  int channels = AUDX_DEFAULT_CHANNELS;
   const char *model_path = NULL;
-  float vad_threshold = DEFAULT_VAD_THRESHOLD;
-  bool enable_vad = DEFAULT_ENABLE_VAD;
+  float vad_threshold = AUDX_DEFAULT_VAD_THRESHOLD;
+  bool stats_enabled = AUDX_DEFAULT_STATS_ENABLED;
+  int input_rate = AUDX_DEFAULT_SAMPLE_RATE;
+  int resample_quality = AUDX_DEFAULT_RESAMPLE_QUALITY;
 
   /* Long options */
   static struct option long_options[] = {
       {"channels", required_argument, 0, 'c'},
+      {"rate", required_argument, 0, 'r'},
+      {"resample-quality", required_argument, 0, 'q'},
       {"model", required_argument, 0, 'm'},
       {"threshold", required_argument, 0, 't'},
-      {"vad", no_argument, 0, 'v'},
-      {"no-vad", no_argument, 0, 'V'},
+      {"stats", no_argument, 0, 's'},
+      {"no-stats", no_argument, 0, 1},
       {"help", no_argument, 0, 'h'},
       {0, 0, 0, 0}};
 
   /* Parse options */
   int opt;
-  while ((opt = getopt_long(argc, argv, "c:m:t:vh", long_options, NULL)) !=
+  while ((opt = getopt_long(argc, argv, "c:r:q:m:t:sh", long_options, NULL)) !=
          -1) {
     switch (opt) {
     case 'c':
       channels = atoi(optarg);
-      if (channels < 1 || channels > 2) {
-        fprintf(stderr, "Error: channels must be 1 or 2\n");
+      if (channels != 1) {
+        fprintf(stderr, "Error: channels must be 1 (mono)\n");
+        return 1;
+      }
+      break;
+    case 'r':
+      input_rate = atoi(optarg);
+      if (input_rate <= 0) {
+        fprintf(stderr, "Error: Invalid sample rate\n");
+        return 1;
+      }
+      break;
+    case 'q':
+      if (input_rate == AUDX_DEFAULT_SAMPLE_RATE) {
+        fprintf(stderr,
+                "Warning: Resample quality is work with --rate/r argument\n");
+      }
+      resample_quality = atoi(optarg);
+      if (resample_quality < AUDX_RESAMPLER_QUALITY_MIN ||
+          resample_quality > AUDX_RESAMPLER_QUALITY_MAX) {
+        fprintf(stderr, "Error: Resample quality must be between %d and %d\n",
+                AUDX_RESAMPLER_QUALITY_MIN, AUDX_RESAMPLER_QUALITY_MAX);
         return 1;
       }
       break;
@@ -80,11 +115,11 @@ int main(int argc, char *argv[]) {
         return 1;
       }
       break;
-    case 'v':
-      enable_vad = true;
+    case 's':
+      stats_enabled = true;
       break;
-    case 'V':
-      enable_vad = false;
+    case 1:
+      stats_enabled = false;
       break;
     case 'h':
       print_usage(argv[0]);
@@ -106,150 +141,51 @@ int main(int argc, char *argv[]) {
   const char *output_path = argv[optind + 1];
 
   printf("Real-Time Audio Denoiser v%s\n", denoiser_version());
-  printf("Input:        %s\n", input_path);
-  printf("Output:       %s\n", output_path);
-  printf("Channels:     %d\n", channels);
-  printf("Model:        %s\n", model_path ? model_path : "embedded");
+  printf("Input:         %s\n", input_path);
+  printf("Output:        %s\n", output_path);
+  printf("Channels:      %d\n", channels);
+  printf("Input Rate:    %d Hz\n", input_rate);
+  if (input_rate != AUDX_DEFAULT_SAMPLE_RATE) {
+    printf("Output Rate:   %d Hz (resampled back from 48kHz)\n", input_rate);
+    printf("Resample Quality: %d\n", resample_quality);
+  }
+  printf("Model:         %s\n", model_path ? model_path : "embedded");
   printf("VAD Threshold: %.2f\n", vad_threshold);
-  printf("VAD Output:   %s\n", enable_vad ? "enabled" : "disabled");
+  printf("Statistics:    %s\n", stats_enabled ? "enabled" : "disabled");
 
-  /* Open input file */
-  FILE *input_file = fopen(input_path, "rb");
-  if (!input_file) {
-    fprintf(stderr, "Error: Cannot open input file '%s'\n", input_path);
-    return 1;
-  }
+  struct AudxState st = {
+      .input_rate = input_rate,
+      .resample_quality = resample_quality,
+      .model_path = (char *)model_path,
+      .vad_threshold = vad_threshold,
+      .stats_enabled = stats_enabled,
+  };
 
-  /* Get file size */
-  fseek(input_file, 0, SEEK_END);
-  long file_size = ftell(input_file);
-  fseek(input_file, 0, SEEK_SET);
+  struct AudxStats stats = {
+      .on_progress = print_progress,
+  };
 
-  int frame_samples = AUDX_FRAME_SIZE * channels;
-  int num_frames = file_size / (frame_samples * sizeof(int16_t));
-
-  printf("File size: %ld bytes\n", file_size);
-  printf("Processing: %d frames\n", num_frames);
-
-  /* Configure denoiser */
-  struct DenoiserConfig config = {.model_preset = model_path ? MODEL_CUSTOM
-                                                             : MODEL_EMBEDDED,
-                                  .model_path = model_path,
-                                  .vad_threshold = vad_threshold,
-                                  .enable_vad_output = enable_vad};
-
-  /* Create denoiser */
-  struct Denoiser denoiser;
-  int ret = denoiser_create(&config, &denoiser);
+  int ret =
+      audx_process_frame(&st, (char *)input_path, (char *)output_path, &stats);
   if (ret != AUDX_SUCCESS) {
-    fprintf(stderr, "Error: Failed to create denoiser (code=%d)\n", ret);
-    const char *error = get_denoiser_error(&denoiser);
-    if (error) {
-      fprintf(stderr, "  %s\n", error);
-    }
-    fclose(input_file);
+    fprintf(stderr, "Error: Denoising failed (code=%d)\n", ret);
     return 1;
   }
 
-  printf("Denoiser initialized\n");
+  if (stats_enabled) {
+    char stats_buffer[1024];
+    snprintf(stats_buffer, sizeof(stats_buffer),
+             "Real-Time Denoiser Statistics:\n"
+             " Frames processed: %d\n"
+             " Speech detected: %.1f%%\n"
+             " VAD scores: avg=%.3f, min=%.3f, max=%.3f\n"
+             " Processing time: total=%.3fms, avg=%.3fms/frame, last=%.3fms",
+             stats.frame_processed, stats.speech_detected, stats.vscores_avg,
+             stats.vscores_min, stats.vscores_max, stats.ptime_total,
+             stats.ptime_avg, stats.ptime_last);
 
-  /* Open output file */
-  FILE *output_file = fopen(output_path, "wb");
-  if (!output_file) {
-    fprintf(stderr, "Error: Cannot create output file '%s'\n", output_path);
-    denoiser_destroy(&denoiser);
-    fclose(input_file);
-    return 1;
+    printf("\n%s\n", stats_buffer);
   }
-
-  /* Allocate buffers */
-  int16_t *input_buffer = malloc(frame_samples * sizeof(int16_t));
-  int16_t *output_buffer = malloc(frame_samples * sizeof(int16_t));
-
-  if (!input_buffer || !output_buffer) {
-    fprintf(stderr, "Error: Memory allocation failed\n");
-    free(input_buffer);
-    free(output_buffer);
-    denoiser_destroy(&denoiser);
-    fclose(input_file);
-    fclose(output_file);
-    return 1;
-  }
-
-  /* Process frames */
-  printf("Processing audio...\n");
-
-  /* Start timing for the entire batch */
-  struct timespec start_time, end_time;
-  clock_gettime(CLOCK_MONOTONIC, &start_time);
-
-  int frame_count = 0;
-  while (1) {
-    size_t read =
-        fread(input_buffer, sizeof(int16_t), frame_samples, input_file);
-    if (read == 0) {
-      break; /* End of file */
-    }
-
-    /* Pad incomplete frames with zeros */
-    if (read < (size_t)frame_samples) {
-      memset(input_buffer + read, 0, (frame_samples - read) * sizeof(int16_t));
-    }
-
-    struct DenoiserResult result;
-    ret = denoiser_process(&denoiser, input_buffer, output_buffer, &result);
-    if (ret != AUDX_SUCCESS) {
-      fprintf(stderr, "Error processing frame %d\n", frame_count);
-      break;
-    }
-
-    /* Write only the samples we actually read */
-    size_t samples_to_write =
-        (read < (size_t)frame_samples) ? read : (size_t)frame_samples;
-    fwrite(output_buffer, sizeof(int16_t), samples_to_write, output_file);
-
-    frame_count++;
-    if (frame_count % 100 == 0 || read < (size_t)frame_samples) {
-      printf("\r    Progress: %d frames processed", frame_count);
-      fflush(stdout);
-    }
-  }
-
-  /* End timing */
-  clock_gettime(CLOCK_MONOTONIC, &end_time);
-  double total_time_ms = (end_time.tv_sec - start_time.tv_sec) * 1000.0 +
-                         (end_time.tv_nsec - start_time.tv_nsec) / 1000000.0;
-  double avg_time_ms = frame_count > 0 ? total_time_ms / frame_count : 0.0;
-
-  /* Update denoiser timing stats manually */
-  denoiser.total_processing_time = total_time_ms;
-  denoiser.last_frame_time = avg_time_ms;
-
-  printf("\n");
-
-  /* Print stats */
-  static char stats_buffer[512];
-  struct DenoiserStats stats;
-  ret = get_denoiser_stats(&denoiser, &stats);
-
-  snprintf(stats_buffer, sizeof(stats_buffer),
-           "Real-Time Denoiser Statistics:\n"
-           " Frames processed: %d\n"
-           " Speech detected: %.1f%%\n"
-           " VAD scores: avg=%.3f, min=%.3f, max=%.3f\n"
-           " Processing time: total=%.3fms, avg=%.3fms/frame, last=%.3fms",
-           stats.frame_processed, stats.speech_detected, stats.vscores_avg,
-           stats.vscores_min, stats.vscores_max, stats.ptime_total,
-           stats.ptime_avg, stats.ptime_last);
-
-  printf("\n%s\n", stats_buffer);
-
-  /* Cleanup */
-  free(input_buffer);
-  free(output_buffer);
-  denoiser_destroy(&denoiser);
-  fclose(input_file);
-  fclose(output_file);
 
   printf("\nOutput written to: %s\n", output_path);
   return 0;

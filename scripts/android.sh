@@ -42,12 +42,13 @@ build_abi() {
     -DCMAKE_TOOLCHAIN_FILE="${NDK_PATH}/build/cmake/android.toolchain.cmake" \
     -DANDROID_ABI="${ABI}" \
     -DANDROID_PLATFORM="android-${API}" \
+    -DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON \
     -DCMAKE_BUILD_TYPE=Release \
     -DBUILD_SHARED_LIBS=ON \
     -DCMAKE_LIBRARY_OUTPUT_DIRECTORY="build/android/libs/${ABI}"
 
-  # Build
-  cmake --build "build/android-${ABI}" -j$(nproc)
+  # Build (only library targets, skip tests)
+  cmake --build "build/android-${ABI}" --target audx_src -j$(nproc)
 
   # Copy output
   mkdir -p "libs/${ABI}"
