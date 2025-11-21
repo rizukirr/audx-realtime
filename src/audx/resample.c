@@ -1,7 +1,7 @@
 #include "audx/resample.h"
+#include "audx/logger.h"
 #include <speex/speex_resampler.h>
 #include <stdbool.h>
-#include <stdio.h>
 
 AudxResampler audx_resample_create(audx_uint32_t nb_channels,
                                    audx_uint32_t input_sample_rate,
@@ -12,7 +12,7 @@ AudxResampler audx_resample_create(audx_uint32_t nb_channels,
       nb_channels, input_sample_rate, output_sample_rate, quality, &error);
 
   if (!speex_state || error != RESAMPLER_ERR_SUCCESS) {
-    fprintf(stderr, "Failed to create resampler: %d\n", error);
+    AUDX_LOGE("Failed to create resampler: %d\n", error);
     if (err)
       *err = error;
     return NULL;
@@ -44,7 +44,7 @@ int audx_resample_process(AudxResampler resampler, const audx_int16_t *input,
                                         &out_len);
 
   if (ret != RESAMPLER_ERR_SUCCESS) {
-    fprintf(stderr, "Resampling failed: %d\n", ret);
+    AUDX_LOGE("Resampling failed: %d\n", ret);
     return AUDX_ERROR_EXTERNAL;
   }
 

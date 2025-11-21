@@ -8,10 +8,10 @@
 
 #define AUDX_DEFAULT_CHANNELS 1
 #define AUDX_DEFAULT_VAD_THRESHOLD 0.5f
-#define AUDX_DEFAULT_STATS_ENABLED true
+#define AUDX_DEFAULT_STATS_ENABLED false
 #define AUDX_DEFAULT_RESAMPLE_QUALITY 4
 #define AUDX_DEFAULT_SAMPLE_RATE 48000
-#define AUDX_DEFAULT_BUT_DEPTH 16
+#define AUDX_DEFAULT_BIT_DEPTH 16
 #define AUDX_DEFAULT_FRAME_SIZE 480
 
 #define audx_int16_t short
@@ -160,5 +160,17 @@ static inline void pcm_float_to_int16(const float *input, int16_t *output,
   }
 }
 #endif
+
+/**
+ * @brief Calculate the number of samples per frame.
+ *
+ * Computes the frame size based on a fixed 10 ms window.
+ *
+ * @param input_rate  Input sample rate in Hz.
+ * @return Number of samples in a 10 ms frame.
+ */
+inline audx_int32_t get_frame_samples(audx_int32_t input_rate) {
+  return input_rate * 10 / 1000;
+}
 
 #endif // AUDX_COMMON_H

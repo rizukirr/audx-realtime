@@ -244,7 +244,7 @@ denoiser_destroy(&denoiser);
 
 - **Sample rate**: 48 kHz / 48000 Hz (required) - `AUDX_DEFAULT_SAMPLE_RATE`
 - **Channels**: Mono only (1 channel) - `AUDX_DEFAULT_CHANNELS`
-- **Bit depth**: 16-bit signed PCM - `AUDX_DEFAULT_BUT_DEPTH`
+- **Bit depth**: 16-bit signed PCM - `AUDX_DEFAULT_BIT_DEPTH`
 - **Frame size**: Exactly 480 samples - `AUDX_DEFAULT_FRAME_SIZE`
 - **Endianness**: Native/little-endian
 
@@ -255,7 +255,7 @@ The library defines constants for audio format requirements:
 ```c
 AUDX_DEFAULT_SAMPLE_RATE  // 48000 Hz
 AUDX_DEFAULT_CHANNELS      // 1 channel
-AUDX_DEFAULT_BUT_DEPTH       // 16-bit PCM
+AUDX_DEFAULT_BIT_DEPTH       // 16-bit PCM
 AUDX_DEFAULT_FRAME_SIZE         // 480 samples
 ```
 

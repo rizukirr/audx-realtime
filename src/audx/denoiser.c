@@ -7,6 +7,7 @@
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 // SIMD intrinsics for different architectures
 #if defined(__x86_64__) || defined(_M_X64) || defined(__i386__) ||             \
@@ -105,12 +106,24 @@ int denoiser_create(const struct DenoiserConfig *config,
 }
 
 /* --- Main Real-Time Frame Processing (Optimized) --- */
+static inline double now_ms(void) {
+  struct timespec ts;
+  clock_gettime(CLOCK_MONOTONIC, &ts);
+  return (double)ts.tv_sec * 1000.0 + (double)ts.tv_nsec / 1e6;
+}
+
 int denoiser_process(struct Denoiser *denoiser, const int16_t *input_pcm,
                      int16_t *output_pcm, struct DenoiserResult *result) {
-  if (!denoiser || !input_pcm || !output_pcm)
+  if (!denoiser || !input_pcm || !output_pcm || !result)
     return AUDX_ERROR_INVALID;
 
   const int frame_size = AUDX_DEFAULT_FRAME_SIZE;
+
+  double t0 = 0.0;
+  if (denoiser->stats_enabled) {
+    /* start timing */
+    t0 = now_ms();
+  }
 
   /* Process mono audio directly (no threads, no extra copies, no timing
    * overhead) */
@@ -122,11 +135,22 @@ int denoiser_process(struct Denoiser *denoiser, const int16_t *input_pcm,
                                           denoiser->processing_buffer,
                                           denoiser->processing_buffer);
 
+  if (result) {
+    result->vad_probability = vad_score;
+    result->is_speech = (vad_score >= denoiser->vad_threshold);
+    result->samples_processed = AUDX_DEFAULT_FRAME_SIZE;
+  }
+
   // Convert float back to int16 PCM
   pcm_float_to_int16(denoiser->processing_buffer, output_pcm, frame_size);
 
-  /* Update statistics (no per-frame timing for optimal performance) */
+  /* Update statistics */
   if (denoiser->stats_enabled) {
+
+    /* end timing */
+    double t1 = now_ms();
+    double elapsed_ms = t1 - t0; /* elapsed in milliseconds */
+
     denoiser->frames_processed++;
     denoiser->total_vad_score += vad_score;
 
@@ -141,19 +165,9 @@ int denoiser_process(struct Denoiser *denoiser, const int16_t *input_pcm,
     if (vad_score > denoiser->max_vad_score) {
       denoiser->max_vad_score = vad_score;
     }
-  }
 
-  if (result) {
-    if (denoiser->stats_enabled) {
-      result->vad_probability = vad_score;
-      result->is_speech = (vad_score >= denoiser->vad_threshold);
-      result->samples_processed = AUDX_DEFAULT_FRAME_SIZE;
-    } else {
-      // VAD disabled: don't populate result fields
-      result->vad_probability = 0.0f;
-      result->is_speech = false;
-      result->samples_processed = 0;
-    }
+    denoiser->last_frame_time = (float)elapsed_ms;
+    denoiser->total_processing_time += (float)elapsed_ms;
   }
 
   return AUDX_SUCCESS;
@@ -203,6 +217,14 @@ int get_denoiser_stats(struct Denoiser *denoiser, struct DenoiserStats *stats) {
   stats->ptime_last = denoiser->last_frame_time;
 
   return 0;
+}
+
+int get_denoiser_stats_reset(struct DenoiserStats *stats) {
+  if (!stats) {
+    return AUDX_ERROR_INVALID;
+  }
+  memset(stats, 0, sizeof(*stats));
+  return AUDX_SUCCESS;
 }
 
 /* Implementation: Version */

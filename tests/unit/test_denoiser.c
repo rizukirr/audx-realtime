@@ -4,7 +4,14 @@
 #include <stdlib.h>
 #include <string.h>
 
-void setUp(void) {}
+// Global result for callback to populate
+static struct DenoiserResult test_result;
+static bool callback_called;
+
+void setUp(void) {
+  callback_called = false;
+  memset(&test_result, 0, sizeof(test_result));
+}
 void tearDown(void) {}
 
 void test_denoiser_create(void) {
@@ -57,8 +64,7 @@ void test_denoiser_process(void) {
 
     // Process
     int16_t output[480];
-    struct DenoiserResult result;
-    int ret = denoiser_process(&ds, input, output, &result);
+    int ret = denoiser_process(&ds, input, output, NULL);
     TEST_ASSERT_EQUAL_INT(0, ret);
   }
   denoiser_destroy(&ds);
@@ -99,20 +105,21 @@ void test_denoiser_vad_enabled(void) {
 
   int16_t input[480];
   int16_t output[480];
-  struct DenoiserResult result;
 
   // Process a frame
   for (int i = 0; i < 480; i++) {
     input[i] = (rand() % 1000) - 500;
   }
 
+  struct DenoiserResult result;
   ret = denoiser_process(&ds, input, output, &result);
   TEST_ASSERT_EQUAL_INT(0, ret);
+  TEST_ASSERT_TRUE(callback_called);
 
   // Check that VAD probability is in valid range
-  TEST_ASSERT_TRUE(result.vad_probability >= 0.0f);
-  TEST_ASSERT_TRUE(result.vad_probability <= 1.0f);
-  TEST_ASSERT_EQUAL_INT(480, result.samples_processed);
+  TEST_ASSERT_TRUE(test_result.vad_probability >= 0.0f);
+  TEST_ASSERT_TRUE(test_result.vad_probability <= 1.0f);
+  TEST_ASSERT_EQUAL_INT(480, test_result.samples_processed);
 
   denoiser_destroy(&ds);
 }
@@ -148,12 +155,11 @@ void test_denoiser_stats(void) {
   for (int frame = 0; frame < 5; frame++) {
     int16_t input[480];
     int16_t output[480];
-    struct DenoiserResult result;
 
     for (int i = 0; i < 480; i++) {
       input[i] = (rand() % 1000) - 500;
     }
-
+    struct DenoiserResult result;
     ret = denoiser_process(&ds, input, output, &result);
     TEST_ASSERT_EQUAL_INT(0, ret);
   }
@@ -174,14 +180,14 @@ void test_denoiser_stats(void) {
                               ? (ds.total_processing_time / ds.frames_processed)
                               : 0.0;
 
-  TEST_ASSERT_TRUE(stats.frame_processed == (int)ds.frames_processed);
-  TEST_ASSERT_TRUE(stats.ptime_avg == avg_frame_time);
-  TEST_ASSERT_TRUE(stats.speech_detected == speech_percent);
-  TEST_ASSERT_TRUE(stats.vscores_avg == avg_vad);
-  TEST_ASSERT_TRUE(stats.vscores_max == ds.max_vad_score);
-  TEST_ASSERT_TRUE(stats.ptime_last == ds.last_frame_time);
-  TEST_ASSERT_TRUE(stats.ptime_total == ds.total_processing_time);
-  TEST_ASSERT_TRUE(stats.vscores_min == ds.min_vad_score);
+  TEST_ASSERT_EQUAL_INT((int)ds.frames_processed, stats.frame_processed);
+  TEST_ASSERT_FLOAT_WITHIN(0.001f, avg_frame_time, stats.ptime_avg);
+  TEST_ASSERT_FLOAT_WITHIN(0.001f, speech_percent, stats.speech_detected);
+  TEST_ASSERT_FLOAT_WITHIN(0.001f, avg_vad, stats.vscores_avg);
+  TEST_ASSERT_EQUAL_FLOAT(ds.max_vad_score, stats.vscores_max);
+  TEST_ASSERT_EQUAL_FLOAT(ds.last_frame_time, stats.ptime_last);
+  TEST_ASSERT_FLOAT_WITHIN(0.001f, ds.total_processing_time, stats.ptime_total);
+  TEST_ASSERT_EQUAL_FLOAT(ds.min_vad_score, stats.vscores_min);
 
   denoiser_destroy(&ds);
 }
@@ -300,12 +306,12 @@ void test_denoiser_vad_score_tracking(void) {
   for (int frame = 0; frame < 5; frame++) {
     int16_t input[480];
     int16_t output[480];
-    struct DenoiserResult result;
 
     for (int i = 0; i < 480; i++) {
       input[i] = (rand() % 1000) - 500;
     }
 
+    struct DenoiserResult result;
     ret = denoiser_process(&ds, input, output, &result);
     TEST_ASSERT_EQUAL_INT(0, ret);
   }
@@ -332,29 +338,28 @@ void test_denoiser_vad_disabled(void) {
 
   int16_t input[480];
   int16_t output[480];
-  struct DenoiserResult result;
-  memset(&result, 0, sizeof(result));
 
   for (int i = 0; i < 480; i++) {
     input[i] = (rand() % 1000) - 500;
   }
 
+  struct DenoiserResult result;
   ret = denoiser_process(&ds, input, output, &result);
   TEST_ASSERT_EQUAL_INT(0, ret);
 
-  // With VAD disabled, result should not be populated
-  // (but we still track internally for stats)
-  TEST_ASSERT_EQUAL_INT(0, result.samples_processed);
+  // With stats disabled, the result is still populated, but internal stats are
+  // not tracked.
+  TEST_ASSERT_TRUE(callback_called);
+  TEST_ASSERT_EQUAL_INT(480, test_result.samples_processed);
 
   denoiser_destroy(&ds);
 }
 
 // Main function to run tests
 
-
 // Test custom model loading
 void test_denoiser_custom_model_load_success(void) {
-  const char *dummy_model_path = "weights_blob.bin";
+  const char *dummy_model_path = "tests/assets/weights_blob.bin";
 
   struct DenoiserConfig config = {.model_preset = MODEL_CUSTOM,
                                   .model_path = dummy_model_path,
