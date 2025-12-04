@@ -1,41 +1,62 @@
-#!/usr/bin/env bash
+#!/bin/bash
 
 set -e
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
-
 # Check ANDROID_HOME
 if [ -z "$ANDROID_HOME" ]; then
-  echo -e "${RED}Error: ANDROID_HOME environment variable not set${NC}"
+  echo -e "Error: ANDROID_HOME environment variable not set"
   exit 1
 fi
 
 # NDK configuration
 NDK_VERSION="29.0.14206865"
 NDK_PATH="${ANDROID_HOME}/ndk/${NDK_VERSION}"
-API=29 # Android 10 minimum
+API=24
 
 # Check NDK
 if [ ! -d "$NDK_PATH" ]; then
-  echo -e "${RED}Error: NDK not found at: $NDK_PATH${NC}"
+  echo -e "Error: NDK not found at: $NDK_PATH"
   exit 1
 fi
 
-# ABIs to build
-# - arm64-v8a: Physical devices (99.9%+ Android 10+ device coverage)
-# - x86_64: Android emulators
+# Color codes
+GREEN='\033[0;32m'
+NC='\033[0m' # No Color
+
+# Parse build type argument
+if [ -z "$1" ]; then
+  echo "Usage: $0 <build-type>"
+  echo
+  echo "Build types:"
+  echo "  debug"
+  echo "  release"
+  exit 1
+fi
+
+# Map build type to CMake format
+case "$1" in
+  debug)
+    BUILD_TYPE="Debug"
+    ;;
+  release)
+    BUILD_TYPE="Release"
+    ;;
+  *)
+    echo "Error: Invalid build type '$1'"
+    echo "Valid options: debug, release"
+    exit 1
+    ;;
+esac
+
+# Android ABIs to build (64-bit only)
 ABIS=("arm64-v8a" "x86_64")
 
-echo -e "${GREEN}Building audx-realtime for multiple Android ABIs...${NC}"
+echo -e "Building for multiple Android ABIs (${BUILD_TYPE})..."
 
 # Function to build for a specific ABI
 build_abi() {
   local ABI=$1
-  echo -e "${YELLOW}Building for ${ABI}...${NC}"
+  echo -e "Building for ${ABI}..."
 
   # Configure CMake
   cmake -S . -B "build/android-${ABI}" \
@@ -43,7 +64,7 @@ build_abi() {
     -DANDROID_ABI="${ABI}" \
     -DANDROID_PLATFORM="android-${API}" \
     -DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON \
-    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_BUILD_TYPE="${BUILD_TYPE}" \
     -DBUILD_SHARED_LIBS=ON \
     -DCMAKE_LIBRARY_OUTPUT_DIRECTORY="build/android/libs/${ABI}"
 
@@ -55,7 +76,7 @@ build_abi() {
   cp "build/android-${ABI}/lib/libaudx_src.so" "libs/${ABI}/"
 
   # Strip symbols to reduce size (30-40% reduction, no performance impact)
-  echo -e "${YELLOW}Stripping symbols from ${ABI} library...${NC}"
+  echo -e "Stripping symbols from ${ABI} library..."
   ${NDK_PATH}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip "libs/${ABI}/libaudx_src.so"
 
   echo -e "${GREEN}✓ ${ABI} build complete${NC}"
@@ -66,6 +87,4 @@ for ABI in "${ABIS[@]}"; do
   build_abi "$ABI"
 done
 
-echo -e "${GREEN}All ABIs built successfully!${NC}"
-echo -e "Libraries are in: libs/"
-tree libs/ || ls -lR libs/
+echo -e "All ABIs built successfully!"

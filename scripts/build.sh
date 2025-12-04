@@ -1,28 +1,33 @@
-#!/usr/bin/env bash
+#!/bin/bash
 
-set -euo pipefail
+# This script builds the project.
 
-BUILD_TYPE="${1:-debug}"
-BUILD_TYPE="${BUILD_TYPE,,}" # lowercase it
+set -e
 
-case "$BUILD_TYPE" in
-release)
-  echo "Building in Release mode..."
-  cmake -S . -B build/release \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_C_COMPILER=clang
-  cmake --build build/release --clean-first
-  ;;
+if [ -z "$1" ]; then
+  echo "Usage: $0 <build-type>"
+  echo
+  echo "Build types:"
+  echo "  debug"
+  echo "  release"
+  exit 1
+fi
 
+build_type=$1
+
+case $build_type in
 debug)
-  echo "Building in Debug mode..."
-  cmake -S . -B build/debug \
-    -DCMAKE_BUILD_TYPE=Debug \
-    -DCMAKE_C_COMPILER=clang
-  cmake --build build/debug --clean-first
+  echo "Building debug"
+  cmake -S . -B build/debug -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER=clang
+  cmake --build build/debug
+  ;;
+release)
+  echo "Building release"
+  cmake -S . -B build/release -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang
+  cmake --build build/release
   ;;
 *)
-  echo "Usage: $0 [debug|release|android]"
+  echo "Unknown build type: $build_type"
   exit 1
   ;;
 esac

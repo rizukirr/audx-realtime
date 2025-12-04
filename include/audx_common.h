@@ -1,0 +1,7 @@
+#ifndef AUDX_COMMON_H
+#define AUDX_COMMON_H
+
+#define FRAME_SIZE 480
+#define SAMPLE_RATE 48000
+
+#endif // AUDX_COMMON_H
