@@ -73,13 +73,6 @@ Denoised Audio Output
 - **Math library** (`-lm`)
 - **Git**: For submodule initialization
 
-### Android-Specific
-
-- **Android NDK** 27.0+ (29.0.14206865 recommended)
-- **ANDROID_HOME** environment variable set
-- Minimum API level: 21
-- **Note**: For Android integration, see [audx-android](https://github.com/rizukirr/audx-android) project
-
 ### Submodules
 
 Initialize required submodules:
@@ -87,11 +80,6 @@ Initialize required submodules:
 ```bash
 git submodule update --init --recursive
 ```
-
-This will clone:
-
-- `external/rnnoise`: RNNoise library from xiph/rnnoise
-- `external/Unity`: Unity C testing framework
 
 ## Building
 
@@ -134,7 +122,7 @@ export ANDROID_HOME=/path/to/android/sdk
 
 **Android Compilation:**
 
-- Release flags: `-O3 -DNDEBUG`
+- Release flags: `-O3`
 - NEON optimizations: Automatic for arm64-v8a, `-mfpu=neon` for armeabi-v7a
 - No `-march=native` to allow cross-compilation
 
@@ -191,51 +179,6 @@ audx_realtime --no-vad input.pcm output.pcm
 
 **Note**: Only mono (single-channel) audio is currently supported. The `-c` option is kept for compatibility but must be 1.
 
-### API Usage
-
-```c
-#include "denoiser.h"
-
-// 1. Configure denoiser
-struct DenoiserConfig config = {
-    .model_preset = MODEL_EMBEDDED, // or MODEL_CUSTOM
-    .model_path = NULL,             // for custom models: "path/to/model.rnnn"
-    .vad_threshold = 0.5f,          // 0.0-1.0 (speech detection sensitivity)
-    .enable_vad_output = true       // enable VAD probability in results
-};
-
-// 2. Create denoiser instance
-struct Denoiser denoiser;
-int ret = denoiser_create(&config, &denoiser);
-if (ret != AUDX_DENOISER_SUCCESS) {
-    fprintf(stderr, "Error: %s\n", get_denoiser_error(&denoiser));
-    return -1;
-}
-
-// 3. Process audio frames (480 samples for mono)
-int16_t input[480];  // Mono: 480 samples
-int16_t output[480]; // Same size as input
-struct DenoiserResult result;
-
-ret = denoiser_process(&denoiser, input, output, &result);
-if (ret == AUDX_DENOISER_SUCCESS) {
-    printf("VAD probability: %.3f\n", result.vad_probability);
-    printf("Speech detected: %s\n", result.is_speech ? "yes" : "no");
-    printf("Samples processed: %d\n", result.samples_processed);
-}
-
-// 4. Get statistics
-struct DenoiserStats stats;
-ret = get_denoiser_stats(&denoiser, &stats);
-if (ret == AUDX_DENOISER_SUCCESS) {
-    printf("Frames processed: %d\n", stats.frame_processed);
-    printf("Speech detected: %.1f%%\n", stats.speech_detected);
-}
-
-// 5. Cleanup
-denoiser_destroy(&denoiser);
-```
-
 ### Audio Format Requirements
 
 - **Sample rate**: 48 kHz / 48000 Hz (required) - `AUDX_DEFAULT_SAMPLE_RATE`
@@ -243,39 +186,6 @@ denoiser_destroy(&denoiser);
 - **Bit depth**: 16-bit signed PCM - `AUDX_DEFAULT_BIT_DEPTH`
 - **Frame size**: Exactly 480 samples - `AUDX_DEFAULT_FRAME_SIZE`
 - **Endianness**: Native/little-endian
-
-**Format Constants:**
-
-The library defines constants for audio format requirements:
-
-```c
-AUDX_DEFAULT_SAMPLE_RATE  // 48000 Hz
-AUDX_DEFAULT_CHANNELS      // 1 channel
-AUDX_DEFAULT_BIT_DEPTH       // 16-bit PCM
-AUDX_DEFAULT_FRAME_SIZE         // 480 samples
-```
-
-These constants are exposed to Kotlin/Java in the audx-android project via JNI, providing a single source of truth for format requirements.
-
-### Error Codes
-
-```c
-AUDX_DENOISER_SUCCESS        //  0: Success
-AUDX_DENOISER_ERROR_INVALID  // -1: Invalid parameters
-AUDX_DENOISER_ERROR_MEMORY   // -2: Memory allocation failed
-AUDX_DENOISER_ERROR_MODEL    // -3: Model loading failed
-AUDX_DENOISER_FORMAT   // -4: Audio format error
-```
-
-### Thread Safety
-
-**Important:** `denoiser_process()` must be called from a **single thread only**.
-
-- Statistics fields (`frames_processed`, etc.) are **NOT thread-safe**
-- Do **NOT** call `denoiser_process()` concurrently from multiple threads
-- Mono processing uses single-threaded design for minimal overhead
-
-For multi-stream processing, create separate `Denoiser` instances per stream.
 
 ## Custom Model Training
 
