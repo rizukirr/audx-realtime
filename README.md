@@ -1,587 +1,287 @@
 # audx-realtime
 
-Real-time audio denoising library using Recurrent Neural Networks (RNNoise). Provides low-latency noise suppression for 48kHz mono audio written in C with SIMD optimizations.
+Lightweight real-time audio denoising library with automatic sample rate conversion. Written in C with SIMD optimizations for high-performance noise suppression.
+
+## What is audx-realtime?
+
+audx-realtime is a minimalist C library to provide real-time speech enhancement with automatic sample rate conversion. It accepts audio at any sample rate (8kHz, 16kHz, 44.1kHz, 48kHz, etc.), automatically resamples to 48kHz for processing, applies neural network-based noise suppression, and resamples back to the original rate.
+
+**Key Features:**
+- Simple 3-function API (`create`, `process`, `destroy`)
+- Automatic sample rate conversion using SpeexDSP
+- SIMD-optimized PCM conversions (SSE4.1/AVX2 for x86, NEON for ARM)
+- Voice Activity Detection (VAD) output
+- Custom RNNoise model support
+- Arena-based memory allocator for fast allocation
+- Cross-platform: Linux desktop and Android (windows soon)
 
 ## Algorithm
 
-This project implements the RNNoise algorithm, a hybrid DSP/Deep Learning approach to real-time speech enhancement. The algorithm combines traditional digital signal processing with recurrent neural networks to achieve effective noise suppression with minimal computational overhead.
+audx-realtime implements the **RNNoise algorithm** - a hybrid DSP/Deep Learning approach developed by Jean-Marc Valin at Xiph.org. The algorithm combines traditional signal processing with recurrent neural networks for effective real-time noise suppression.
 
-**Reference Paper:**
+### RNNoise Architecture
 
-> J.-M. Valin, _A Hybrid DSP/Deep Learning Approach to Real-Time Full-Band Speech Enhancement_,
-> Proceedings of IEEE Multimedia Signal Processing (MMSP) Workshop, arXiv:1709.08243, 2018.
->
-> https://arxiv.org/pdf/1709.08243.pdf
+- **Neural Network**: 3 GRU layers (256 units each) + 2 convolutional layers
+- **Frame Size**: 480 samples (10ms at 48kHz)
+- **Processing Latency**: ~10-13ms (frame + computation)
+- **Model Size**: ~85KB (8-bit quantized weights)
+- **Frequency Bands**: 22 for analysis, 32 for gain application
+- **Sparse Weights**: 30-50% sparsity for efficiency
 
-### Architecture
-
-The RNNoise neural network consists of:
-
-- **3 Gated Recurrent Unit (GRU) layers**: 256 units each, forming the recurrent backbone
-- **2 Convolutional layers**:
-  - Conv1: 65 → 128 features, kernel size 3, tanh activation
-  - Conv2: 128 → 256 features, kernel size 3, tanh activation
-- **Dense output layer**: 1024 dimensions (4×256 concatenated features) → 32 frequency band gains
-- **VAD dense layer**: Voice Activity Detection probability output
-- **Sparse weight matrices**: 30-50% sparsity in GRU weights for computational efficiency
-
-**Processing Pipeline:**
+### Processing Pipeline
 
 ```
-Input Audio (48kHz, 16-bit PCM)
+Input Audio (any sample rate, 16-bit PCM mono)
+    ↓
+Resample to 48kHz (if needed)
     ↓
 Frame Buffer (480 samples = 10ms)
     ↓
-Feature Extraction (42 features from 22 frequency bands)
+Feature Extraction (42 acoustic features)
     ↓
-Convolutional Layers (65 → 128 → 256)
+Neural Network (CNN + GRU layers)
     ↓
-GRU Layers (3 × 256 units with sparse weights)
+Frequency Band Gains + VAD Detection
     ↓
-Dense Layer (1024 → 32 frequency band gains)
+Apply Denoising
     ↓
-Apply Gains + VAD Detection
+Resample to original rate (if needed)
     ↓
 Denoised Audio Output
 ```
 
-**Key Characteristics:**
+## Building
 
-- Frame size: **480 samples** (10ms at 48kHz)
-- Input features: **65 dimensions** (42 acoustic features + context)
-- Frequency bands: **22** for analysis, **32** for gain application
-- Model size: **~85KB** (8-bit quantized weights)
-- Latency: **10ms** (single frame) + processing time (~1-3ms on modern CPUs)
+### Requirements
 
-## Features
-
-- **Real-time processing**: Optimized for low-latency audio applications
-- **SIMD acceleration**: SSE4.1/AVX2 (x86) and NEON (ARM) optimizations
-- **Mono audio processing**: Single-channel optimized for minimal overhead
-- **Voice Activity Detection (VAD)**: Integrated speech detection with configurable threshold
-- **Audio format validation**: Built-in validation with descriptive error messages
-- **Custom model support**: Load user-trained models at runtime
-- **Cross-platform**: Linux, Android (arm64-v8a, x86_64)
-
-## Build Requirements
-
-### Dependencies
-
-- **CMake** 3.10 or higher
-- **C Compiler**: Clang or GCC with C99 support
-- **pthreads**: POSIX threads library
-- **Math library** (`-lm`)
+- **CMake** 3.23 or higher
+- **C99 Compiler**: GCC or Clang
 - **Git**: For submodule initialization
 
-### Submodules
-
-Initialize required submodules:
+### Initialize Submodules
 
 ```bash
 git submodule update --init --recursive
 ```
 
-## Building
-
-### Desktop (Linux/macOS)
-
-#### Debug Build
+### Desktop (Linux)
 
 ```bash
+# Debug build (with AddressSanitizer)
 ./scripts/build.sh debug
-```
 
-#### Release Build
-
-```bash
+# Release build (optimized with -O3 -march=native)
 ./scripts/build.sh release
 ```
 
 **Output:**
-
-- Executable: `build/{debug|release}/bin/audx_realtime`
-- Library: `build/{debug|release}/lib/libaudx_src.{so|a}`
-
-**Compilation Flags:**
-
-- Debug: `-Wall -Wextra -g -Og`
-- Release: `-O3 -march=native -DNDEBUG`
+- Executable: `build/{debug|release}/audx`
+- Library: `build/{debug|release}/libaudx_src.so`
 
 ### Android
 
-#### Single ABI (arm64-v8a)
-
 ```bash
+# Set Android SDK path
 export ANDROID_HOME=/path/to/android/sdk
-./scripts/build.sh android
+
+# Debug build (arm64-v8a + x86_64)
+./scripts/android.sh debug
+
+# Release build (with LTO and stripped symbols)
+./scripts/android.sh release
 ```
 
-**Output:** `build/android/libs/arm64-v8a/libaudx_src.so`
+**Output:**
+- `libs/arm64-v8a/libaudx_src.so`
+- `libs/x86_64/libaudx_src.so`
 
-**Note**: Currently only arm64-v8a is built by default. For integration with audx-android, copy the built library to the Android project's `jniLibs/` directory.
-
-**Android Compilation:**
-
-- Release flags: `-O3`
-- NEON optimizations: Automatic for arm64-v8a, `-mfpu=neon` for armeabi-v7a
-- No `-march=native` to allow cross-compilation
-
-### CMake Options
-
-```bash
-cmake -S . -B build \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DBUILD_SHARED_LIBS=ON \
-    -DCMAKE_C_COMPILER=clang
-```
-
-**Options:**
-
-- `BUILD_SHARED_LIBS`: `ON` (shared library, default) or `OFF` (static)
-- `CMAKE_BUILD_TYPE`: `Debug`, `Release`, or `RelWithDebInfo`
-- `ANDROID_ABI`: Target ABI for Android builds
-- `ANDROID_PLATFORM`: Minimum API level (default: `android-21`)
+**Android Requirements:**
+- Android NDK 29.0.14206865
+- Minimum API level: 24 (Android 7.0)
 
 ## Usage
 
+### Library API
+
+```c
+#include "audx.h"
+
+// Create denoiser state
+// - model_path: Path to custom .rnnn model (or NULL for default)
+// - in_rate: Input sample rate (e.g., 16000, 44100, 48000)
+// - resample_quality: SpeexDSP quality 0-10 (10 = best, 3-5 recommended)
+AudxState *state = audx_create(NULL, 16000, 5);
+
+// Process audio frames
+float input[320];   // Frame size for 16kHz: 16000 * 0.01 = 160 samples
+float output[320];
+float vad_prob = audx_process(state, input, output);
+
+// Or process int16 PCM directly
+short pcm_input[320];
+short pcm_output[320];
+vad_prob = audx_process_int(state, pcm_input, pcm_output);
+
+// Cleanup
+audx_destroy(state);
+```
+
+### Frame Size Calculation
+
+Each input frame should contain **10ms of audio**:
+
+```c
+// Calculate samples per frame for your sample rate
+unsigned int frame_size = calculate_frame_sample(sample_rate);
+
+// Examples:
+// 8000 Hz  -> 80 samples
+// 16000 Hz -> 160 samples
+// 44100 Hz -> 441 samples
+// 48000 Hz -> 480 samples
+```
+
 ### Command-Line Tool
 
-Process PCM audio files:
-
 ```bash
-audx_realtime [OPTIONS] <input.pcm> <output.pcm>
+# Process PCM file (auto-detects sample rate from file size)
+./build/release/audx input.pcm output.pcm
+
+# Or specify manually
+./build/release/audx --rate 16000 input.pcm output.pcm
+
+# Use custom model
+./build/release/audx --model my_model.rnnn input.pcm output.pcm
 ```
 
-**Options:**
-
-- `-c, --channels=N`: Number of channels (must be 1 for mono)
-- `-m, --model=PATH`: Path to custom RNNoise model
-- `-t, --threshold=VAL`: VAD threshold (0.0-1.0, default: 0.5)
-- `-v, --vad`: Enable VAD output in results
-- `--no-vad`: Disable VAD output
-- `-h, --help`: Show help message
-
-**Examples:**
-
-```bash
-# Mono audio with default settings
-audx_realtime input.pcm output.pcm
-
-# Custom VAD threshold
-audx_realtime -t 0.3 input.pcm output.pcm
-
-# Use custom trained model
-audx_realtime --model=my_model.rnnn input.pcm output.pcm
-
-# Disable VAD for pure denoising
-audx_realtime --no-vad input.pcm output.pcm
-```
-
-**Note**: Only mono (single-channel) audio is currently supported. The `-c` option is kept for compatibility but must be 1.
-
-### Audio Format Requirements
-
-- **Sample rate**: 48 kHz / 48000 Hz (required) - `AUDX_DEFAULT_SAMPLE_RATE`
-- **Channels**: Mono only (1 channel) - `AUDX_DEFAULT_CHANNELS`
-- **Bit depth**: 16-bit signed PCM - `AUDX_DEFAULT_BIT_DEPTH`
-- **Frame size**: Exactly 480 samples - `AUDX_DEFAULT_FRAME_SIZE`
+**Input Format:**
+- **Sample Rate**: Any rate supported by SpeexDSP (e.g., 8000, 16000, 44100, 48000 Hz)
+- **Channels**: Mono only (1 channel)
+- **Bit Depth**: 16-bit signed PCM
 - **Endianness**: Native/little-endian
-
-## Custom Model Training
-
-You can train custom RNNoise models optimized for specific noise environments or voice characteristics. The training process is provided by the upstream RNNoise repository.
-
-### Training Workflow
-
-#### 1. Prepare Training Data
-
-Collect the following audio files (48kHz, 16-bit PCM):
-
-- **Clean speech**: Speech recordings without noise
-- **Background noise**: Continuous noise (HVAC, traffic, crowd)
-- **Foreground noise**: Transient sounds (keyboard clicks, mouse, breathing)
-- **Room Impulse Responses (optional)**: For realistic reverb simulation
-
-**Recommended dataset size**: 10,000-200,000+ sequences (each ~10 seconds)
-
-#### 2. Extract Features
-
-Generate training features by mixing clean speech with noise:
-
-```bash
-cd external/rnnoise
-
-# Basic feature extraction
-./dump_features speech.pcm background_noise.pcm foreground_noise.pcm features.f32 100000
-
-# With room impulse response augmentation
-./dump_features -rir_list rir_list.txt \
-    speech.pcm background_noise.pcm foreground_noise.pcm \
-    features.f32 100000
-```
-
-**Parameters:**
-
-- `speech.pcm`: Clean speech file
-- `background_noise.pcm`: Background noise file
-- `foreground_noise.pcm`: Foreground noise file
-- `features.f32`: Output feature file (binary float32)
-- `100000`: Number of training sequences to generate
-
-**RIR format** (`rir_list.txt`):
-
-```
-path/to/rir1.pcm
-path/to/rir2.pcm
-...
-```
-
-#### 3. Train the Model
-
-```bash
-cd torch
-
-# Train with default settings (75,000 weight updates recommended)
-python3 train_rnnoise.py ../features.f32 output_models --epochs 100
-
-# Advanced training with custom sparsification
-python3 train_rnnoise.py ../features.f32 output_models \
-    --epochs 100 \
-    --batch_size 128 \
-    --sparsify_start 6000 \
-    --sparsify_stop 20000 \
-    --sparsify_interval 100
-```
-
-**Training Configuration:**
-
-- **GRU sparsity targets**: W_hr=30%, W_hz=20%, W_hn=50%
-- **Sparsification**: Applied between updates 6,000-20,000
-- **Block size**: [8, 4] for structured sparsity (hardware-friendly)
-- **Learning rate**: Adaptive, typically starts at 1e-3
-- **Batch size**: 128 (default)
-
-**Output:** Checkpoints in `output_models/` (e.g., `rnnoise_50.pth`, `rnnoise_75.pth`)
-
-#### 4. Convert Model to C Code
-
-For embedding the model in C/C++ applications:
-
-```bash
-# Quantize and convert to C arrays
-python3 dump_rnnoise_weights.py --quantize output_models/rnnoise_75.pth rnnoise_c
-
-# This generates C files with weight arrays
-```
-
-#### 5. Export Binary Blob (Runtime Loading)
-
-For runtime model loading in audx-realtime:
-
-```bash
-# Compile the dump_weights_blob tool
-cd external/rnnoise
-./compile.sh  # or manually: gcc -o dump_weights_blob dump_weights_blob.c
-
-# Export model to binary format
-./dump_weights_blob > my_custom_model.rnnn
-```
-
-#### 6. Use Custom Model
-
-```c
-struct DenoiserConfig config = {
-    .num_channels = 1,
-    .model_preset = MODEL_CUSTOM,
-    .model_path = "my_custom_model.rnnn",  // Your trained model
-    .vad_threshold = 0.5f,
-    .enable_vad_output = true
-};
-```
-
-Or via CLI:
-
-```bash
-audx_realtime --model=my_custom_model.rnnn input.pcm output.pcm
-```
-
-### Training Tips
-
-1. **Dataset diversity**: Include various speakers, accents, and noise types
-2. **Data augmentation**: Use RIR files for realistic acoustic environments
-3. **Validation split**: Hold out 10-20% of data for validation
-4. **Checkpoint selection**: Test multiple checkpoints (50, 75, 100 epochs) to find optimal balance
-5. **Sparsity tuning**: Higher sparsity = faster inference, but may reduce quality
-6. **Overfitting**: Monitor validation loss; stop if it diverges from training loss
-
-### Reference Documentation
-
-For detailed training documentation, see:
-
-- **RNNoise training guide**: https://github.com/xiph/rnnoise
-- **PyTorch training code**: `external/rnnoise/torch/`
-- **Feature extraction**: `external/rnnoise/src/dump_features.c`
-- **Model conversion**: `external/rnnoise/dump_rnnoise_weights.py`
-
-## Performance & Optimization
-
-### SIMD Optimizations
-
-The library automatically leverages CPU-specific SIMD instructions:
-
-#### x86/x86_64 Platforms
-
-- **SSE4.1**: int16 ↔ float conversions (8 samples per iteration)
-- **SSE2**: Clamping and packing operations
-- **AVX2 + FMA**: Neural network matrix operations
-- Enabled via `-march=native` (desktop) or explicit flags (Android)
-
-#### ARM Platforms
-
-- **NEON**: Vectorized conversions and math operations (8 samples per iteration)
-- ARMv7: Requires `-mfpu=neon` flag
-- ARM64: NEON available by default
-
-#### Fallback
-
-- Portable scalar C implementation for unsupported platforms
-
-### Processing Architecture
-
-**Mono processing**: Single-threaded, optimized direct processing path
-
-```
-Input Audio (480 int16 samples)
-    ↓
-Convert int16 → float (SIMD optimized)
-    ↓
-RNNoise inference (GRU + CNN)
-    ↓
-Convert float → int16 (SIMD optimized)
-    ↓
-Output Audio (480 int16 samples)
-```
-
-**Performance characteristics:**
-
-- No thread synchronization overhead
-- Direct memory access
-- Minimal latency
-- Optimal for real-time applications
-
-### Timing Statistics
-
-The denoiser tracks performance metrics:
-
-```c
-const char *stats = get_denoiser_stats(&denoiser);
-```
-
-**Output example:**
-
-```
-=== Denoiser Statistics ===
-Frames processed: 7000
-Speech frames: 4235 (60.5%)
-VAD scores: min=0.001, max=0.998, avg=0.623
-Total processing time: 21.456 ms
-Average frame time: 0.003 ms
-Last frame time: 0.003 ms
-```
-
-**Metrics:**
-
-- Frame processing time (per-frame and cumulative)
-- Speech detection rate
-- VAD probability distribution
-- Total frames processed
-
-### Memory Usage
-
-Mono processing memory allocation:
-
-- **RNNoise state**: ~180KB (GRU states + FFT buffers)
-- **Processing buffer**: ~2KB (480 floats)
-- **Total**: ~182KB
-
-**No threading overhead**: Single-threaded design eliminates pthread, mutex, and condition variable overhead
-
-## Testing
-
-### Build Tests
-
-```bash
-cd build/debug  # or build/release
-cmake --build . --target test_denoiser
-```
-
-### Run All Tests
-
-```bash
-ctest
-```
-
-### Run Specific Test
-
-```bash
-./bin/test_denoiser
-```
-
-### Test Framework
-
-Tests use the Unity C testing framework (`external/Unity/`).
-
-Test files:
-
-- Unit tests: `tests/unit/`
-- Mocks: `tests/mocks/`
-- CMake helper: `add_audx_test()` function in `tests/CMakeLists.txt`
 
 ### Sample Files
 
-Sample audio files are provided in `samples/`:
-
-- `noise_test_AirportAnnouncements_1.pcm` (noisy)
-- `clean_test_AirportAnnouncements_1.pcm` (clean reference)
-
-Format: 48kHz, 16-bit PCM, ~70 seconds each
-
-**Test processing:**
+Test with included samples:
 
 ```bash
-./build/release/bin/audx_realtime \
+# Process airport announcements sample
+./build/release/audx \
     samples/noise_test_AirportAnnouncements_1.pcm \
     output_denoised.pcm
 ```
 
-## Architecture
+## Custom Models
 
-### Core Components
+You can load custom-trained RNNoise models:
 
-1. **Denoiser** (`src/audx/denoiser.c`, `include/audx/denoiser.h`)
-   - Main API for audio denoising
-   - Worker thread management
-   - SIMD-optimized format conversions
-   - Statistics collection
-
-2. **Model Loader** (`src/audx/model_loader.c`, `include/audx/model_loader.h`)
-   - Model preset management
-   - Custom model validation
-   - Path resolution utilities
-
-3. **Logger** (`include/audx/logger.h`)
-   - Debug logging infrastructure
-   - Platform-specific output (logcat for Android)
-
-### External Dependencies
-
-- **RNNoise** (`external/rnnoise`): Xiph.org's RNNoise library
-  - Neural network inference engine
-  - Feature extraction and DSP
-  - Built from source with SIMD optimizations
-
-- **Unity** (`external/Unity`): ThrowTheSwitch Unity testing framework
-  - C unit testing
-  - Test runner generation
-
-## Platform Notes
-
-### Android Integration
-
-The library builds as a native library for Android. For complete Android integration with Kotlin/Java API, use the **[audx-android](https://github.com/rizukirr/audx-android)** project.
-
-```bash
-# Build for arm64-v8a
-./scripts/build.sh android
-
-# Output location
-build/android/libs/arm64-v8a/libaudx_src.so
+```c
+AudxState *state = audx_create("path/to/model.rnnn", 48000, 5);
 ```
 
-**Using audx-android:**
+For training custom models, see the [RNNoise repository](https://github.com/xiph/rnnoise) training documentation.
 
-The audx-android project provides:
+## Performance
 
-- Kotlin/Java API with coroutines support
-- JNI bridge implementation
-- Audio format validation (constants exposed via JNI)
-- Builder pattern for configuration
-- Comprehensive examples and tests
+### SIMD Optimizations
 
-See the [audx-android repository](https://github.com/rizukirr/audx-android) for integration instructions.
+**x86/x86_64:**
+- SSE4.1: int16 ↔ float conversions (8 samples/iteration)
+- AVX2: Neural network matrix operations
 
-**Android logging**: Library uses `__android_log_print()` for debug output (visible via `logcat`).
+**ARM/ARM64:**
+- NEON: Vectorized conversions (8 samples/iteration)
+- Automatic for arm64-v8a
 
-### Desktop Linux
+**Fallback:**
+- Portable scalar C for unsupported platforms
 
-Standard shared library, link with:
+### Memory Usage
 
-```bash
-gcc -o myapp myapp.c -laudx_src -lm -lpthread
-```
+Per `AudxState` instance:
+- RNNoise state: ~180KB
+- Resampler buffers: ~4-8KB (if resampling needed)
+- Arena allocator: Block-based, grows as needed
+- **Total**: ~190KB per state
 
-Or in CMakeLists.txt:
+### Latency
 
+- Frame duration: 10ms
+- Processing time: 1-3ms (on modern CPUs)
+- Resampling overhead: <1ms
+- **Total latency**: ~12-14ms
+
+## Integration
+
+### Linking
+
+**CMake:**
 ```cmake
-target_link_libraries(myapp PRIVATE audx_src)
+add_library(audx_src SHARED IMPORTED)
+set_target_properties(audx_src PROPERTIES
+    IMPORTED_LOCATION "${CMAKE_SOURCE_DIR}/libs/${ANDROID_ABI}/libaudx_src.so"
+)
+target_link_libraries(your_app PRIVATE audx_src)
 ```
 
-## Contributing
+**GCC/Clang:**
+```bash
+gcc -o myapp myapp.c -laudx_src -L/path/to/libs -I/path/to/include
+```
 
-When contributing, please:
+### Android JNI
 
-1. Follow the existing C99 code style
-2. Add unit tests for new functionality
-3. Update documentation for API changes
-4. Test on multiple platforms (x86, ARM, Android)
-5. Verify SIMD optimizations don't break scalar fallback
+For Android integration with Kotlin/Java API, see the separate [audx-android](https://github.com/rizukirr/audx-android) project.
 
 ## License
 
-This project uses RNNoise from Xiph.org. Check `external/rnnoise/COPYING` for RNNoise licensing terms.
+MIT License
+
+Copyright (c) 2025 audx-realtime contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+## Credits
+
+This project builds upon excellent open-source work from the **Xiph.Org Foundation**:
+
+- **RNNoise**: Neural network-based noise suppression by Jean-Marc Valin
+  - Copyright (c) 2017-2018, Mozilla
+  - https://github.com/xiph/rnnoise
+
+- **SpeexDSP**: High-quality audio resampler
+  - Copyright (c) 2002-2008, Xiph.Org Foundation
+  - https://github.com/xiph/speexdsp
+
+We gratefully acknowledge the Xiph.Org Foundation and contributors for their foundational work in open-source audio processing.
 
 ## References
 
-- **RNNoise Paper**: https://arxiv.org/pdf/1709.08243.pdf
-- **RNNoise Repository**: https://github.com/xiph/rnnoise
-- **Xiph.org**: https://www.xiph.org/
+**RNNoise Algorithm Paper:**
 
-## Troubleshooting
+> J.-M. Valin, _A Hybrid DSP/Deep Learning Approach to Real-Time Full-Band Speech Enhancement_
+> Proceedings of IEEE Multimedia Signal Processing (MMSP) Workshop, arXiv:1709.08243, 2018.
+> https://arxiv.org/pdf/1709.08243.pdf
 
-### Submodule not initialized
+**Related Links:**
 
-```bash
-git submodule update --init --recursive
-```
-
-### Android NDK not found
-
-```bash
-export ANDROID_HOME=/path/to/android/sdk
-# Verify NDK installation
-ls $ANDROID_HOME/ndk/
-```
-
-### Compilation errors with SIMD
-
-Check CPU architecture:
-
-```bash
-gcc -march=native -Q --help=target | grep march
-```
-
-Disable SIMD by removing `-march=native` in `CMakeLists.txt`.
-
-### Audio quality issues
-
-- Verify input is 48kHz, 16-bit PCM
-- Try different VAD thresholds (`-t` flag)
-- Consider training a custom model for your noise environment
-- Check frame size is exactly 480 samples per channel
-
-### Performance issues
-
-- Use Release build (`-DCMAKE_BUILD_TYPE=Release`)
-- Verify SIMD optimizations are enabled (check compilation flags)
-- Profile with `get_denoiser_stats()` to identify bottlenecks
-- For real-time applications, use appropriate thread priorities
+- RNNoise Repository: https://github.com/xiph/rnnoise
+- RNNoise Demo: https://jmvalin.ca/demo/rnnoise/
+- SpeexDSP Repository: https://github.com/xiph/speexdsp
+- Xiph.Org Foundation: https://www.xiph.org/
