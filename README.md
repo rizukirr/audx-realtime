@@ -2,10 +2,6 @@
 
 Real-time audio denoising library using Recurrent Neural Networks (RNNoise). Provides low-latency noise suppression for 48kHz mono audio written in C with SIMD optimizations.
 
-**Related Projects:**
-
-- [audx-android](https://github.com/rizukirr/audx-android) - Android library wrapper with Kotlin/Java API
-
 ## Algorithm
 
 This project implements the RNNoise algorithm, a hybrid DSP/Deep Learning approach to real-time speech enhancement. The algorithm combines traditional digital signal processing with recurrent neural networks to achieve effective noise suppression with minimal computational overhead.
