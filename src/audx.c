@@ -2,20 +2,14 @@
 #include "audx.h"
 #include "arena.h"
 #include "audx_denoise.h"
+#include "audx_pcm.h"
 #include "audx_resampler.h"
 #include <stdbool.h>
 #include <stdio.h>
 
-// SIMD intrinsics for different architectures
-#if defined(__x86_64__) || defined(_M_X64) || defined(__i386__) ||             \
-    defined(_M_IX86)
-#include <emmintrin.h> // SSE2
-#include <smmintrin.h> // SSE4.1 for _mm_cvtepi16_epi32
-#define HAS_X86_SIMD 1
-#elif defined(__ARM_NEON) || defined(__aarch64__)
-#include <arm_neon.h>
-#define HAS_ARM_NEON 1
-#endif
+unsigned int audx_calculate_frame_sample(unsigned int sample_rate) {
+  return sample_rate * 10 / 1000;
+}
 
 struct AudxState {
   unsigned int in_rate;
@@ -30,7 +24,7 @@ struct AudxState {
   Arena *arena;
 };
 
-AudxState *audx_create(char *model_path, unsigned int in_rate,
+AudxState *audx_create(const char *model_path, unsigned int in_rate,
                        int resample_quality) {
 
   Arena *arena = arena_init(16 * 1014);
@@ -46,7 +40,7 @@ AudxState *audx_create(char *model_path, unsigned int in_rate,
 
   state->resample_quality = resample_quality;
   state->in_rate = in_rate;
-  state->in_len = calculate_frame_sample(in_rate);
+  state->in_len = audx_calculate_frame_sample(in_rate);
 
   state->need_resample = in_rate != FRAME_RATE;
   if (state->need_resample) {

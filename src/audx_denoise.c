@@ -10,7 +10,7 @@ struct AudxDenoiseState {
   RNNModel *model;
 };
 
-AudxDenoiseState *audx_denoise_create(char *model_path) {
+AudxDenoiseState *audx_denoise_create(const char *model_path) {
   DenoiseState *st = NULL;
   RNNModel *model = NULL;
 

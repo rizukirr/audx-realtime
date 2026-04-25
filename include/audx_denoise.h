@@ -16,7 +16,7 @@ typedef struct AudxDenoiseState AudxDenoiseState;
  *
  * The denoiser must be destroyed with audx_denoise_destroy().
  */
-AudxDenoiseState *audx_denoise_create(char *model_path);
+AudxDenoiseState *audx_denoise_create(const char *model_path);
 
 /**
  * Process a frame of audio.

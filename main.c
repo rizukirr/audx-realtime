@@ -22,7 +22,7 @@ int main(int argc, char **argv) {
   unsigned int sample_rate = atoi(argv[3]);
 
   AudxState *state = audx_create(NULL, sample_rate, 4);
-  unsigned int in_len = calculate_frame_sample(sample_rate);
+  unsigned int in_len = audx_calculate_frame_sample(sample_rate);
 
   bool first = true;
   short out[in_len];
