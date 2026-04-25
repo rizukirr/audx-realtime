@@ -9,7 +9,7 @@ if [ -z "$ANDROID_HOME" ]; then
 fi
 
 # NDK configuration
-NDK_VERSION="29.0.14206865"
+NDK_VERSION="30.0.14904198"
 NDK_PATH="${ANDROID_HOME}/ndk/${NDK_VERSION}"
 API=24
 
@@ -68,12 +68,16 @@ build_abi() {
     -DBUILD_SHARED_LIBS=ON \
     -DCMAKE_LIBRARY_OUTPUT_DIRECTORY="build/android/libs/${ABI}"
 
-  # Build (only library targets, skip tests)
-  cmake --build "build/android-${ABI}" --target audx_src -j$(nproc)
+  # Build shared lib (for JNI consumers) + bundled static lib (for KMP cinterop)
+  cmake --build "build/android-${ABI}" --target audx_src audx_bundled -j$(nproc)
 
-  # Copy output
+  # Copy shared lib output
   mkdir -p "libs/${ABI}"
   cp "build/android-${ABI}/lib/libaudx_src.so" "libs/${ABI}/"
+
+  # Copy bundled static lib for Kotlin/Native cinterop
+  mkdir -p "libs-static/${ABI}"
+  cp "build/android-${ABI}/lib/libaudx.a" "libs-static/${ABI}/"
 
   # Strip symbols to reduce size (30-40% reduction, no performance impact)
   echo -e "Stripping symbols from ${ABI} library..."
