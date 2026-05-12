@@ -8,6 +8,9 @@ out/
 # no-vibe learning-mode local state
 .no-vibe/
 
+# vibekit isolated worktrees
+.vibe-worktrees/
+
 # CMake
 CMakeCache.txt
 CMakeFiles/
