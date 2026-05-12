@@ -48,8 +48,8 @@ case "$1" in
     ;;
 esac
 
-# Android ABIs to build (64-bit only)
-ABIS=("arm64-v8a" "x86_64")
+# Android ABIs to build
+ABIS=("arm64-v8a" "armeabi-v7a" "x86_64")
 
 echo -e "Building for multiple Android ABIs (${BUILD_TYPE})..."
 
