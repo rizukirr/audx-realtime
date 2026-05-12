@@ -177,8 +177,11 @@ if(ANDROID)
         elseif(ANDROID_ABI STREQUAL "arm64-v8a")
             # arm64-v8a: NEON is always available, no flag needed
             message(STATUS "ARM64 NEON enabled by default for arm64-v8a")
+        elseif(ANDROID_ABI STREQUAL "armeabi-v7a")
+            # armeabi-v7a: NEON required; NDK default -mfpu=neon defines __ARM_NEON
+            message(STATUS "ARM NEON enabled for armeabi-v7a (via NDK -mfpu=neon default)")
         else()
-            message(FATAL_ERROR "Unsupported ABI: ${ANDROID_ABI}. Only arm64-v8a and x86_64 are supported.")
+            message(FATAL_ERROR "Unsupported ABI: ${ANDROID_ABI}. Supported ABIs: arm64-v8a, armeabi-v7a, x86_64.")
         endif()
     endif()
 
@@ -190,6 +193,9 @@ if(ANDROID)
         elseif(ANDROID_ABI STREQUAL "arm64-v8a")
             target_compile_definitions(speexdsp PRIVATE USE_NEON)
             message(STATUS "Enabled ARM NEON for SpeexDSP resampler (arm64-v8a)")
+        elseif(ANDROID_ABI STREQUAL "armeabi-v7a")
+            target_compile_definitions(speexdsp PRIVATE USE_NEON)
+            message(STATUS "Enabled ARM NEON for SpeexDSP resampler (armeabi-v7a)")
         endif()
     endif()
 
