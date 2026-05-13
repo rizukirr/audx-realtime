@@ -101,6 +101,15 @@ build_abi() {
   echo -e "Stripping symbols from ${ABI} library..."
   ${NDK_PATH}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip "libs/${ABI}/libaudx_src.so"
 
+  # Assert NEON for armeabi-v7a — armv7 NEON depends on the NDK's -mfpu=neon
+  # default; guard against a silent regression if a future NDK changes it.
+  if [ "$ABI" = "armeabi-v7a" ]; then
+    if ! ${NDK_PATH}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf -A "libs/${ABI}/libaudx_src.so" | grep -q "Advanced_SIMD_arch"; then
+      echo "Error: NEON not enabled in libs/${ABI}/libaudx_src.so (Advanced_SIMD_arch attribute missing)"
+      exit 1
+    fi
+  fi
+
   echo -e "${GREEN}✓ ${ABI} build complete${NC}"
 }
 
