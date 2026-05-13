@@ -9,7 +9,7 @@ if [ -z "$ANDROID_HOME" ]; then
 fi
 
 # NDK configuration
-NDK_VERSION="29.0.14206865"
+NDK_VERSION="30.0.14904198"
 NDK_PATH="${ANDROID_HOME}/ndk/${NDK_VERSION}"
 API=24
 
@@ -48,10 +48,28 @@ case "$1" in
     ;;
 esac
 
-# Android ABIs to build (64-bit only)
-ABIS=("arm64-v8a" "x86_64")
+# Android ABIs to build
+ABIS=("arm64-v8a" "armeabi-v7a" "x86_64")
 
-echo -e "Building for multiple Android ABIs (${BUILD_TYPE})..."
+# Optional ABI filter: $2 narrows the build to a single ABI.
+if [ -n "$2" ]; then
+  REQUESTED_ABI="$2"
+  MATCHED=0
+  for ABI in "${ABIS[@]}"; do
+    if [ "$ABI" = "$REQUESTED_ABI" ]; then
+      MATCHED=1
+      break
+    fi
+  done
+  if [ "$MATCHED" -ne 1 ]; then
+    echo "Error: Unsupported ABI '${REQUESTED_ABI}'"
+    echo "Supported ABIs: ${ABIS[*]}"
+    exit 1
+  fi
+  ABIS=("$REQUESTED_ABI")
+fi
+
+echo -e "Building for Android ABIs: ${ABIS[*]} (${BUILD_TYPE})..."
 
 # Function to build for a specific ABI
 build_abi() {
@@ -68,16 +86,29 @@ build_abi() {
     -DBUILD_SHARED_LIBS=ON \
     -DCMAKE_LIBRARY_OUTPUT_DIRECTORY="build/android/libs/${ABI}"
 
-  # Build (only library targets, skip tests)
-  cmake --build "build/android-${ABI}" --target audx_src -j$(nproc)
+  # Build shared lib (for JNI consumers) + bundled static lib (for KMP cinterop)
+  cmake --build "build/android-${ABI}" --target audx_src audx_bundled -j$(nproc)
 
-  # Copy output
+  # Copy shared lib output
   mkdir -p "libs/${ABI}"
   cp "build/android-${ABI}/lib/libaudx_src.so" "libs/${ABI}/"
+
+  # Copy bundled static lib for Kotlin/Native cinterop
+  mkdir -p "libs-static/${ABI}"
+  cp "build/android-${ABI}/lib/libaudx.a" "libs-static/${ABI}/"
 
   # Strip symbols to reduce size (30-40% reduction, no performance impact)
   echo -e "Stripping symbols from ${ABI} library..."
   ${NDK_PATH}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip "libs/${ABI}/libaudx_src.so"
+
+  # Assert NEON for armeabi-v7a — armv7 NEON depends on the NDK's -mfpu=neon
+  # default; guard against a silent regression if a future NDK changes it.
+  if [ "$ABI" = "armeabi-v7a" ]; then
+    if ! ${NDK_PATH}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf -A "libs/${ABI}/libaudx_src.so" | grep -q "Advanced_SIMD_arch"; then
+      echo "Error: NEON not enabled in libs/${ABI}/libaudx_src.so (Advanced_SIMD_arch attribute missing)"
+      exit 1
+    fi
+  fi
 
   echo -e "${GREEN}✓ ${ABI} build complete${NC}"
 }

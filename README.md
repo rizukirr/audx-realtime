@@ -84,16 +84,22 @@ git submodule update --init --recursive
 # Set Android SDK path
 export ANDROID_HOME=/path/to/android/sdk
 
-# Debug build (arm64-v8a + x86_64)
+# Debug build (all ABIs: arm64-v8a, armeabi-v7a, x86_64)
 ./scripts/android.sh debug
 
 # Release build (with LTO and stripped symbols)
 ./scripts/android.sh release
+
+# Single-ABI build (faster iteration)
+./scripts/android.sh release armeabi-v7a
 ```
 
 **Output:**
 - `libs/arm64-v8a/libaudx_src.so`
+- `libs/armeabi-v7a/libaudx_src.so`
 - `libs/x86_64/libaudx_src.so`
+
+The matching `libs-static/<abi>/libaudx.a` bundles (audx + rnnoise + speexdsp) are produced for Kotlin/Native cinterop consumers.
 
 **Android Requirements:**
 - Android NDK 29.0.14206865
@@ -191,7 +197,8 @@ For training custom models, see the [RNNoise repository](https://github.com/xiph
 
 **ARM/ARM64:**
 - NEON: Vectorized conversions (8 samples/iteration)
-- Automatic for arm64-v8a
+- Automatic for arm64-v8a (architecturally mandated)
+- Required for armeabi-v7a (via the NDK's default `-mfpu=neon`; the build asserts `Advanced_SIMD_arch` post-strip and fails if missing)
 
 **Fallback:**
 - Portable scalar C for unsupported platforms

@@ -34,7 +34,7 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/external/rnnoise)
 
     set_target_properties(rnnoise PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
-    if(NOT ANDROID)
+    if(NOT ANDROID AND NOT CMAKE_CROSSCOMPILING)
         target_compile_options(rnnoise PRIVATE -march=native)
     endif()
 
@@ -81,6 +81,12 @@ endif()
 
 file(GLOB_RECURSE SOURCES src/*.c)
 add_library(audx_src SHARED ${SOURCES})
+
+# audx_pcm.c uses SSE4.1 / NEON intrinsics; enable required ISA per arch.
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|i[3-6]86")
+    set_source_files_properties(${CMAKE_SOURCE_DIR}/src/audx_pcm.c
+        PROPERTIES COMPILE_FLAGS "-msse4.1")
+endif()
 target_include_directories(audx_src PUBLIC
     ${CMAKE_SOURCE_DIR}/include
     ${CMAKE_SOURCE_DIR}/external/rnnoise/include
@@ -94,7 +100,45 @@ target_compile_definitions(audx_src PRIVATE
     RANDOM_PREFIX=lib
 )
 
-if(NOT ANDROID)
+# Static library for Kotlin/Native cinterop. Same sources as audx_src,
+# but archived (not linked) so it can be bundled with rnnoise + speexdsp
+# into a single self-contained libaudx.a below.
+add_library(audx_static STATIC ${SOURCES})
+target_include_directories(audx_static PUBLIC
+    ${CMAKE_SOURCE_DIR}/include
+    ${CMAKE_SOURCE_DIR}/external/rnnoise/include
+    ${CMAKE_SOURCE_DIR}/external/speexdsp/include
+)
+target_compile_definitions(audx_static PRIVATE
+    OUTSIDE_SPEEX
+    RANDOM_PREFIX=lib
+)
+set_target_properties(audx_static PROPERTIES
+    OUTPUT_NAME audx_core
+    POSITION_INDEPENDENT_CODE ON
+)
+
+# Bundle audx_core + rnnoise + speexdsp into a single libaudx.a using ar -M.
+# cinterop's .def file then only needs `staticLibraries = libaudx.a`.
+set(AUDX_BUNDLED "${CMAKE_ARCHIVE_OUTPUT_DIRECTORY}/libaudx.a")
+file(GENERATE OUTPUT ${CMAKE_BINARY_DIR}/bundle_audx.mri
+    CONTENT "create ${AUDX_BUNDLED}
+addlib $<TARGET_FILE:audx_static>
+addlib $<TARGET_FILE:rnnoise>
+addlib $<TARGET_FILE:speexdsp>
+save
+end
+")
+add_custom_command(
+    OUTPUT ${AUDX_BUNDLED}
+    COMMAND ${CMAKE_AR} -M < ${CMAKE_BINARY_DIR}/bundle_audx.mri
+    DEPENDS audx_static rnnoise speexdsp ${CMAKE_BINARY_DIR}/bundle_audx.mri
+    COMMENT "Bundling audx_core + rnnoise + speexdsp -> libaudx.a"
+    VERBATIM
+)
+add_custom_target(audx_bundled ALL DEPENDS ${AUDX_BUNDLED})
+
+if(NOT ANDROID AND NOT CMAKE_CROSSCOMPILING)
     add_executable(audx main.c)
     target_link_libraries(audx audx_src)
 endif()
@@ -133,8 +177,11 @@ if(ANDROID)
         elseif(ANDROID_ABI STREQUAL "arm64-v8a")
             # arm64-v8a: NEON is always available, no flag needed
             message(STATUS "ARM64 NEON enabled by default for arm64-v8a")
+        elseif(ANDROID_ABI STREQUAL "armeabi-v7a")
+            # armeabi-v7a: NEON required; NDK default -mfpu=neon defines __ARM_NEON
+            message(STATUS "ARM NEON enabled for armeabi-v7a (via NDK -mfpu=neon default)")
         else()
-            message(FATAL_ERROR "Unsupported ABI: ${ANDROID_ABI}. Only arm64-v8a and x86_64 are supported.")
+            message(FATAL_ERROR "Unsupported ABI: ${ANDROID_ABI}. Supported ABIs: arm64-v8a, armeabi-v7a, x86_64.")
         endif()
     endif()
 
@@ -146,6 +193,9 @@ if(ANDROID)
         elseif(ANDROID_ABI STREQUAL "arm64-v8a")
             target_compile_definitions(speexdsp PRIVATE USE_NEON)
             message(STATUS "Enabled ARM NEON for SpeexDSP resampler (arm64-v8a)")
+        elseif(ANDROID_ABI STREQUAL "armeabi-v7a")
+            target_compile_definitions(speexdsp PRIVATE USE_NEON)
+            message(STATUS "Enabled ARM NEON for SpeexDSP resampler (armeabi-v7a)")
         endif()
     endif()
 
