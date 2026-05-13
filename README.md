@@ -13,7 +13,7 @@ audx-realtime is a minimalist C library to provide real-time speech enhancement 
 - Voice Activity Detection (VAD) output
 - Custom RNNoise model support
 - Arena-based memory allocator for fast allocation
-- Cross-platform: Linux desktop and Android (windows soon)
+- Cross-platform: Linux desktop and Android (arm64-v8a, armeabi-v7a, x86_64)
 
 ## Algorithm
 
@@ -84,26 +84,30 @@ git submodule update --init --recursive
 # Set Android SDK path
 export ANDROID_HOME=/path/to/android/sdk
 
-# Debug build (all ABIs: arm64-v8a, armeabi-v7a, x86_64)
+# Build all supported ABIs (arm64-v8a, armeabi-v7a, x86_64)
 ./scripts/android.sh debug
-
-# Release build (with LTO and stripped symbols)
 ./scripts/android.sh release
 
 # Single-ABI build (faster iteration)
-./scripts/android.sh release armeabi-v7a
+./scripts/android.sh release arm64-v8a
 ```
 
-**Output:**
-- `libs/arm64-v8a/libaudx_src.so`
-- `libs/armeabi-v7a/libaudx_src.so`
-- `libs/x86_64/libaudx_src.so`
-
-The matching `libs-static/<abi>/libaudx.a` bundles (audx + rnnoise + speexdsp) are produced for Kotlin/Native cinterop consumers.
+**Output (per ABI):**
+- `libs/<abi>/libaudx_src.so` — shared library for JNI consumers
+- `libs-static/<abi>/libaudx.a` — bundled static lib (audx + rnnoise + speexdsp) for Kotlin/Native cinterop
 
 **Android Requirements:**
-- Android NDK 29.0.14206865
+- Android NDK 30.0.14904198
 - Minimum API level: 24 (Android 7.0)
+
+#### CI builds
+
+The `Android Build` GitHub Actions workflow (`.github/workflows/android.yml`)
+builds all supported ABIs in parallel on every push and PR to `main`. Artifacts:
+
+- `libaudx-<abi>` — per-ABI `.so` and `.a`
+- `jniLibs-all-abis` — combined `jniLibs/<abi>/libaudx_src.so` tree, drop-in
+  for AAR / Android Gradle plugin packaging
 
 ## Usage
 

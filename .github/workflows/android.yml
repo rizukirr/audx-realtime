@@ -1,0 +1,81 @@
+name: Android Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build ${{ matrix.abi }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        abi: [arm64-v8a, armeabi-v7a, x86_64]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Download RNNoise model
+        working-directory: external/rnnoise
+        run: ./download_model.sh
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android NDK
+        run: sdkmanager --install "ndk;30.0.14904198"
+
+      - name: Build release for ${{ matrix.abi }}
+        env:
+          ABI: ${{ matrix.abi }}
+        run: ./scripts/android.sh release "$ABI"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: libaudx-${{ matrix.abi }}
+          path: |
+            libs/${{ matrix.abi }}/libaudx_src.so
+            libs-static/${{ matrix.abi }}/libaudx.a
+          if-no-files-found: error
+          retention-days: 30
+
+  bundle:
+    name: Bundle jniLibs tree
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all ABI artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Assemble jniLibs/<abi>/libaudx_src.so tree
+        run: |
+          mkdir -p jniLibs
+          for abi in arm64-v8a armeabi-v7a x86_64; do
+            mkdir -p "jniLibs/$abi"
+            cp "artifacts/libaudx-$abi/libs/$abi/libaudx_src.so" "jniLibs/$abi/"
+          done
+          ls -lR jniLibs
+
+      - name: Upload combined jniLibs
+        uses: actions/upload-artifact@v4
+        with:
+          name: jniLibs-all-abis
+          path: jniLibs/
+          if-no-files-found: error
+          retention-days: 90
