@@ -31,8 +31,8 @@ if [ -z "$1" ]; then
   echo "  debug"
   echo "  release"
   echo
-  echo "ABI (optional, default = all four):"
-  echo "  arm64-v8a, armeabi-v7a, x86_64, x86"
+  echo "ABI (optional, default = all supported):"
+  echo "  arm64-v8a, armeabi-v7a, x86_64"
   exit 1
 fi
 
@@ -51,8 +51,8 @@ case "$1" in
     ;;
 esac
 
-# Android ABIs to build (all four official ABIs)
-ABIS=("arm64-v8a" "armeabi-v7a" "x86_64" "x86")
+# Android ABIs to build
+ABIS=("arm64-v8a" "armeabi-v7a" "x86_64")
 
 # Optional ABI filter: $2 narrows the build to a single ABI.
 if [ -n "$2" ]; then

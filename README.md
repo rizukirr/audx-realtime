@@ -13,7 +13,7 @@ audx-realtime is a minimalist C library to provide real-time speech enhancement 
 - Voice Activity Detection (VAD) output
 - Custom RNNoise model support
 - Arena-based memory allocator for fast allocation
-- Cross-platform: Linux desktop and Android (all four ABIs)
+- Cross-platform: Linux desktop and Android (arm64-v8a, armeabi-v7a, x86_64)
 
 ## Algorithm
 
@@ -84,7 +84,7 @@ git submodule update --init --recursive
 # Set Android SDK path
 export ANDROID_HOME=/path/to/android/sdk
 
-# Build all four ABIs (arm64-v8a, armeabi-v7a, x86_64, x86)
+# Build all supported ABIs (arm64-v8a, armeabi-v7a, x86_64)
 ./scripts/android.sh debug
 ./scripts/android.sh release
 
@@ -103,7 +103,7 @@ export ANDROID_HOME=/path/to/android/sdk
 #### CI builds
 
 The `Android Build` GitHub Actions workflow (`.github/workflows/android.yml`)
-builds all four ABIs in parallel on every push and PR to `main`. Artifacts:
+builds all supported ABIs in parallel on every push and PR to `main`. Artifacts:
 
 - `libaudx-<abi>` — per-ABI `.so` and `.a`
 - `jniLibs-all-abis` — combined `jniLibs/<abi>/libaudx_src.so` tree, drop-in
