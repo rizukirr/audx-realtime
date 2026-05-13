@@ -25,11 +25,14 @@ NC='\033[0m' # No Color
 
 # Parse build type argument
 if [ -z "$1" ]; then
-  echo "Usage: $0 <build-type>"
+  echo "Usage: $0 <build-type> [abi]"
   echo
   echo "Build types:"
   echo "  debug"
   echo "  release"
+  echo
+  echo "ABI (optional, default = all four):"
+  echo "  arm64-v8a, armeabi-v7a, x86_64, x86"
   exit 1
 fi
 
@@ -48,8 +51,8 @@ case "$1" in
     ;;
 esac
 
-# Android ABIs to build
-ABIS=("arm64-v8a" "armeabi-v7a" "x86_64")
+# Android ABIs to build (all four official ABIs)
+ABIS=("arm64-v8a" "armeabi-v7a" "x86_64" "x86")
 
 # Optional ABI filter: $2 narrows the build to a single ABI.
 if [ -n "$2" ]; then
