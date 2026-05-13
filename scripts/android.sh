@@ -51,7 +51,25 @@ esac
 # Android ABIs to build
 ABIS=("arm64-v8a" "armeabi-v7a" "x86_64")
 
-echo -e "Building for multiple Android ABIs (${BUILD_TYPE})..."
+# Optional ABI filter: $2 narrows the build to a single ABI.
+if [ -n "$2" ]; then
+  REQUESTED_ABI="$2"
+  MATCHED=0
+  for ABI in "${ABIS[@]}"; do
+    if [ "$ABI" = "$REQUESTED_ABI" ]; then
+      MATCHED=1
+      break
+    fi
+  done
+  if [ "$MATCHED" -ne 1 ]; then
+    echo "Error: Unsupported ABI '${REQUESTED_ABI}'"
+    echo "Supported ABIs: ${ABIS[*]}"
+    exit 1
+  fi
+  ABIS=("$REQUESTED_ABI")
+fi
+
+echo -e "Building for Android ABIs: ${ABIS[*]} (${BUILD_TYPE})..."
 
 # Function to build for a specific ABI
 build_abi() {
